@@ -46,7 +46,7 @@ int MessagingEntryPoint(void* pArgs)
         int result;
 
         result = mailbox_free(tenMailboxes[i]);
-        console_output(FALSE, "\n%s: mailbox_close returned %d\n", testName, result);
+        console_output(FALSE, "\n%s: mailbox_free returned %d\n", testName, result);
     }
 
     for (i = 0; i < 14; i++)

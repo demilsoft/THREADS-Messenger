@@ -50,17 +50,17 @@ int MessagingEntryPoint(void* pArgs)
     nameBuffer[strlen(nameBuffer) - 2] = '\0';
     strncpy(childNames[kidpid], nameBuffer, 256);
 
-    snprintf(nameBuffer, sizeof(nameBuffer), "%s-Child1:1", testName);
+    snprintf(nameBuffer, sizeof(nameBuffer), "%s-Child2:1", testName);
     kidpid = k_spawn(nameBuffer, TerminalReceiveTesting, nameBuffer, THREADS_MIN_STACK_SIZE, 3);
     nameBuffer[strlen(nameBuffer) - 2] = '\0';
     strncpy(childNames[kidpid], nameBuffer, 256);
 
-    snprintf(nameBuffer, sizeof(nameBuffer), "%s-Child1:2", testName);
+    snprintf(nameBuffer, sizeof(nameBuffer), "%s-Child3:2", testName);
     kidpid = k_spawn(nameBuffer, TerminalReceiveTesting, nameBuffer, THREADS_MIN_STACK_SIZE, 3);
     nameBuffer[strlen(nameBuffer) - 2] = '\0';
     strncpy(childNames[kidpid], nameBuffer, 256);
 
-    snprintf(nameBuffer, sizeof(nameBuffer), "%s-Child1:3", testName);
+    snprintf(nameBuffer, sizeof(nameBuffer), "%s-Child4:3", testName);
     kidpid = k_spawn(nameBuffer, TerminalReceiveTesting, nameBuffer, THREADS_MIN_STACK_SIZE, 3);
     nameBuffer[strlen(nameBuffer) - 2] = '\0';
     strncpy(childNames[kidpid], nameBuffer, 256);

@@ -14,7 +14,7 @@ char inputChar;
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
 {
-    char* testName = "MessagingTest05";
+    char* testName = "MessagingTest14";
     int status, kidpid;
     char nameBuffer[512];
     device_control_block_t controlBlock;

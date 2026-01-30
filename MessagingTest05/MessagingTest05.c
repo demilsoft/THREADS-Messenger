@@ -31,11 +31,15 @@ int MessagingEntryPoint(void* pArgs)
     controlBlock.command = TERMINAL_WRITE_CHAR;
     controlBlock.output_data = (void*)'A';
 
-    /* send a character to the terminal. */
-    device_control("term0", controlBlock);
+    for (int i = 0; i < 100; ++i)
+    {
+        /* send a character to the terminal. */
+        device_control("term0", controlBlock);
 
-    /* wait for the device to respond. */
-    wait_device("term0", &status);
+        /* wait for the device to respond. */
+        wait_device("term0", &status);
+
+    }
 
     console_output(FALSE, "\n%s: Returned from waitdevice, status: 0x%08x.\n", testName, status);
 

@@ -118,7 +118,7 @@ int CloseMailbox(char* strArgs)
 
         result = mailbox_free(mailboxId);
 
-        console_output(FALSE, "%s: mailbox_close returned %d\n", strArgs, result);
+        console_output(FALSE, "%s: mailbox_free returned %d\n", strArgs, result);
 
     }
 
