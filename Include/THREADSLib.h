@@ -17,6 +17,7 @@
 #define THREADS_MAX_DISKS               2
 #define THREADS_MAX_TERMINALS			4
 #define THREADS_CLOCK_DEVICE_ID         0
+#define THREADS_SYSTEM_CALL_ID          7
 #define THREADS_MAX_DEVICES             8
 
 #define THREADS_MAX_IO_BUFFER_SIZE		1024
@@ -24,7 +25,7 @@
 
 #define MAX_PROCESSES					50
 
-/* Interrupt identifiers.  Indecies into the interrupt vector. */
+/* Interrupt identifiers.  Indicies into the interrupt vector. */
 #define THREADS_TIMER_INTERRUPT			0
 #define THREADS_IO_INTERRUPT			1
 #define THREADS_EXCEPTION_INTERRUPT		2
@@ -42,6 +43,7 @@
 #define DISK_SEEK			  0x10
 #define TERMINAL_READ_CHAR    0x20
 #define TERMINAL_WRITE_CHAR   0x40
+#define SYSTEM_CALL           0x80  
 
 /* Device types */
 typedef enum
@@ -65,19 +67,18 @@ typedef struct
 #define THREADS_DISK_SECTOR_SIZE    512
 #define THREADS_DISK_SECTOR_COUNT   16   /* Sectors per track*/
 #define THREADS_DISK_MAX_PLATTERS   3
+#define THREADS_DISK_MAX_TRACKS     256   /* Max number of tracks */
 
 /* structure passed to system calls. */
+#define THREADS_MAX_SYSCALL_ARGUMENTS  6
 typedef struct
 {
 	uint32_t  call_id;
-	uint32_t  argDword;
-	uint32_t  argInt;
-	char* arg_string;
+	intptr_t  arguments[THREADS_MAX_SYSCALL_ARGUMENTS];
 } system_call_arguments_t;
 
 typedef int (*process_entrypoint_t) (void*);
-typedef void (*interrupt_handler_t) (char deviceId[32], uint8_t command, uint32_t status);   /* function where process begins */
-typedef void (*system_call_handler_t)(system_call_arguments_t* pArgs);
+typedef void (*interrupt_handler_t) (char deviceId[32], uint8_t command, uint32_t status, void *pArgs);   /* function where process begins */
 
 
 /* THREADS Interface */
@@ -91,7 +92,6 @@ LIB_SPEC void	     set_psr(uint32_t psr);
 LIB_SPEC uint32_t    system_clock();
 
 LIB_SPEC interrupt_handler_t*	get_interrupt_handlers();
-LIB_SPEC system_call_handler_t* get_system_call_vector();
 
 LIB_SPEC uint32_t    device_initialize(char* device);
 LIB_SPEC uint32_t    device_handle(char* device);
@@ -102,4 +102,5 @@ LIB_SPEC void	     console_output(bool debug, char* string, ...);
 
 LIB_SPEC void		 stop(int code);
 
+LIB_SPEC void system_call(system_call_arguments_t* sys_args);
 

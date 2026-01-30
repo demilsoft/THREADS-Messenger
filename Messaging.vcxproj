@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <HasSolution>$([System.IO.File]::Exists('$(ProjectDir)Messaging-Solution.c'))</HasSolution>
+  </PropertyGroup>
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|ARM64">
       <Configuration>Debug</Configuration>
@@ -25,14 +28,27 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+  </ItemGroup>  
+  <ItemGroup Condition="'$(HasSolution)'=='False'">
+      <ClCompile Include="Messaging.c"/>
   </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="Messaging.c" />
+  <ItemGroup Condition="'$(HasSolution)'=='True'">
+      <ClCompile Include="Messaging-Solution.c"/>
+  </ItemGroup>
+  <ItemGroup Condition="'$(HasSolution)'=='True'">
+      <ClCompile Include="NodeList-Solution.c"/>
+  </ItemGroup>
+  <ItemGroup Condition="'$(HasSolution)'=='True'">
+      <ClInclude Include="NodeList-Solution.h"/>
+  </ItemGroup>
+  <ItemGroup Condition="'$(HasSolution)'=='True'">
+      <ClInclude Include="message-Solution.h"/>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Include\Messaging.h" />
-    <ClInclude Include="Include\THREADSLib.h" />
-  </ItemGroup>
+    <ClInclude Include="Include\THREADSLib.h" /> 
+  </ItemGroup> 
+  
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>

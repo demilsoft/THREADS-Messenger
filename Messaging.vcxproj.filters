@@ -1,5 +1,8 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <HasSolution>$([System.IO.File]::Exists('$(ProjectDir)Messaging-Solution.c'))</HasSolution>
+  </PropertyGroup>
   <ItemGroup>
     <Filter Include="Source Files">
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
@@ -14,8 +17,18 @@
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
   </ItemGroup>
-  <ItemGroup>
+  <ItemGroup Condition="'$(HasSolution)'=='False'">
     <ClCompile Include="Messaging.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup Condition="'$(HasSolution)'=='True'">
+    <ClCompile Include="Messaging-Solution.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup Condition="'$(HasSolution)'=='True'">
+    <ClCompile Include="NodeList-Solution.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -24,6 +37,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Include\THREADSLib.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="message-Solution.h" Condition="'$(HasSolution)'=='True'">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="NodeList-Solution.h" Condition="'$(HasSolution)'=='True'">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
