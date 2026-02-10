@@ -6,9 +6,16 @@
 
 /*********************************************************************************
 *
-* MessagingTest01
+* MessagingTest01 - Basic Mailbox Creation
 *
-* Simple test case that creates two mailboxes.
+* Creates two mailboxes with different slot counts and slot sizes:
+*   - Mailbox 1: 10 slots, 50-byte messages
+*   - Mailbox 2: 20 slots, 30-byte messages
+*
+* Verifies that mailbox_create returns valid (non-negative) mailbox IDs and
+* that multiple mailboxes can be created independently.
+*
+* Expected: Two successful mailbox_create calls returning distinct IDs >= 0.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

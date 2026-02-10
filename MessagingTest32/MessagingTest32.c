@@ -10,8 +10,22 @@ int mailboxId;
 
 /*********************************************************************************
 *
-* MessagingTest32
+* MessagingTest32 - Multiple Terminal Device I/O
 *
+* Writes a character to each of the four terminals (term0-term3) using
+* device_control with TERMINAL_WRITE_CHAR ('A' through 'D'). Then spawns
+* four child processes, each calling wait_device on a different terminal
+* to receive the I/O completion interrupt.
+*
+* Each child parses its terminal number from the process name (appended
+* after a ':' separator), constructs the device name "termN", and blocks
+* on wait_device until the terminal interrupt handler delivers the status.
+*
+* Tests concurrent device I/O across all four terminals and that each
+* terminal's device mailbox correctly delivers to the correct waiter.
+*
+* Expected: All four children receive their respective terminal status
+*           and exit with -3.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

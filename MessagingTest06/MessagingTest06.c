@@ -8,10 +8,21 @@
 
 /*********************************************************************************
 *
-* MessagingTest06
+* MessagingTest06 - Blocking Send on Full Mailbox
 *
-* Spawns a process that sends a message and spawns a lower priority process
-* to receive the message.
+* Creates a 5-slot mailbox (50-byte max) and spawns two children:
+*   - Child1 (priority 4): Sends 6 messages (blocking)
+*   - Child2 (priority 3): Receives 6 messages
+*
+* Child1 runs first, fills all 5 slots, then blocks on the 6th send because
+* the mailbox is full. Child2 (higher priority) then runs and begins
+* receiving. After receiving the first message, a slot opens and Child1 is
+* unblocked to deliver its 6th message. Child2 continues receiving all 6.
+*
+* Tests the blocking send behavior when a mailbox is full and the wake-up
+* of a blocked sender when a slot becomes available.
+*
+* Expected: All 6 messages delivered and received in order.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

@@ -9,7 +9,19 @@ int WaitForClockThenExit(char* strArgs);
 
 /*********************************************************************************
 *
-* MessagingTest13
+* MessagingTest13 - Clock Device wait_device
+*
+* Spawns a single child process that calls wait_device("clock", ...) to block
+* until the clock interrupt handler delivers a message to the clock device
+* mailbox. The clock handler fires every 5 ticks (~100ms), sending a
+* zero-value message to the clock mailbox.
+*
+* Tests the integration between the clock interrupt handler, the device
+* mailbox system, and wait_device. Verifies that a process can successfully
+* block on a device mailbox and be woken by an interrupt.
+*
+* Expected: Child blocks on wait_device, wakes after clock interrupt,
+*           prints status, and exits with -3.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

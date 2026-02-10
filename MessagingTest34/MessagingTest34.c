@@ -8,7 +8,19 @@
 
 /*********************************************************************************
 *
-* MessagingTest34
+* MessagingTest34 - Send Message One Byte Over Slot Size
+*
+* Creates a mailbox with 10 slots and a 12-byte max slot size. Attempts to
+* send the message "Test Message" with size 13 (one byte over the limit).
+*
+* mailbox_send should reject the message because it exceeds the slot size
+* and return -1. If it unexpectedly succeeds, the test proceeds to receive
+* and verify the message.
+*
+* Tests the boundary condition where the message is exactly one byte larger
+* than the mailbox's max slot size.
+*
+* Expected: Send returns -1 (message too large). Test exits after failure.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

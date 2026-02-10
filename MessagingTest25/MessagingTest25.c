@@ -7,9 +7,21 @@
 
 /*********************************************************************************
 *
-* MessagingTest25
+* MessagingTest25 - Mailbox Free and Reuse
 *
-* Simple test case that creates one child process.
+* Creates MAXMBOX - 5 mailboxes, saves IDs for mailboxes at indices 20-29
+* (10 mailboxes). Then frees those 10 mailboxes using mailbox_free.
+*
+* After freeing, attempts to create 14 new mailboxes. The first 10 should
+* succeed (reusing freed slots) and the next 4 should also succeed (using
+* remaining slots from the original 5 left open). Creates beyond capacity
+* should fail with id < 0.
+*
+* Tests that mailbox_free properly returns mailbox slots to the pool and
+* that freed mailbox IDs can be reused by subsequent mailbox_create calls.
+*
+* Expected: 10 frees succeed. 14 new creates mostly succeed. Overflow
+*           creates return id < 0.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

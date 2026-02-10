@@ -15,7 +15,22 @@ int mailboxId;
 
 /*********************************************************************************
 *
-* MessagingTest10
+* MessagingTest10 - Non-Blocking Send to Full Mailbox
+*
+* Creates a 5-slot mailbox (50-byte max) and spawns five children:
+*   - Child1 (priority 3): Sends 5 messages, filling the mailbox
+*   - Child2 (priority 3): Sends 1 message NON-BLOCKING (OPTION_NON_BLOCKING)
+*     Should fail with -2 since the mailbox is full and block=FALSE.
+*   - Child3 (priority 3): Sends 1 message blocking - blocks (mailbox full)
+*   - Child4 (priority 3): Sends 1 message blocking - blocks (mailbox full)
+*   - Child5 (priority 2): Receives 6 messages
+*
+* Tests that non-blocking send returns -2 when the mailbox is full rather
+* than blocking, while blocking senders correctly wait for available slots.
+* The receiver unblocks the two waiting senders as it consumes messages.
+*
+* Expected: Child2's non-blocking send returns -2. Child3 and Child4 block
+*           then deliver after receiver frees slots. 6 messages received.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

@@ -8,10 +8,24 @@
 
 /*********************************************************************************
 *
-* MessagingTest05
+* MessagingTest05 - Device I/O (Terminal Write) + Mailbox Send/Receive
 *
-* Spawns a process that sends a message and spawns a higher priority process
-* to receive the message.
+* First, writes the character 'A' to terminal "term0" 100 times using
+* device_control and wait_device, testing the terminal I/O interrupt path
+* and the device mailbox mechanism.
+*
+* Then creates a mailbox (10 slots, 50-byte max) and spawns two children:
+*   - Child1 (priority 3): Sends 1 message
+*   - Child2 (priority 4): Receives 1 message
+*
+* Child2 has higher priority (lower number), so it runs first and blocks
+* on receive. Child1 then runs, sends, and delivers directly to the
+* waiting receiver.
+*
+* Tests both device I/O integration and mailbox send with a higher-priority
+* receiver already waiting.
+*
+* Expected: 100 terminal writes complete. Message delivered and received.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

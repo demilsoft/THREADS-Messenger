@@ -8,8 +8,20 @@
 
 /*********************************************************************************
 *
-* MessagingTest34
-* 
+* MessagingTest33 - Send and Receive at Exact Slot Size
+*
+* Creates a mailbox with 10 slots and a 13-byte max slot size. Sends the
+* message "Test Message" (12 chars + null = 13 bytes), which exactly matches
+* the slot size.
+*
+* Then receives the message and verifies the receive returns the correct
+* message size (13).
+*
+* Tests the boundary condition where the message size equals the mailbox's
+* max slot size exactly.
+*
+* Expected: Send succeeds (result 0). Receive returns 13 (message size).
+*           Received message is "Test Message".
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

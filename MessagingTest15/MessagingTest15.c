@@ -9,9 +9,18 @@
 
 /*********************************************************************************
 *
-* MessagingTest15
+* MessagingTest15 - Send Message Exceeding Slot Size
 *
-* Send a message that is too large
+* Creates a mailbox with 10 slots and a 5-byte max slot size, then attempts
+* to send the 12-byte message "Hello There" (including null terminator).
+*
+* Since the message exceeds the mailbox's slot size, mailbox_send should
+* reject it and return -1. If the send unexpectedly succeeds, the test
+* proceeds to receive and display the message.
+*
+* Tests the message size validation in mailbox_send.
+*
+* Expected: mailbox_send returns -1 (message too large for slot).
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
@@ -57,4 +66,3 @@ int MessagingEntryPoint(void* pArgs)
 
 	return 0;
 }
-

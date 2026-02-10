@@ -12,7 +12,24 @@ int ReceiveEightAndExit(char* strArgs);
 
 /*********************************************************************************
 *
-* MessagingTest24
+* MessagingTest24 - Full Mailbox with Blocked Senders and Receiver Drain
+*
+* Creates a mailbox (5 slots, MAX_MESSAGE) and spawns a priority-1 child
+* that:
+*   1. Sends 5 messages, filling the mailbox.
+*   2. Spawns three senders at priorities 2, 3, 4 that each send 1 message.
+*      Since the mailbox is full, all three block on send.
+*   3. Spawns a receiver at priority 5 that receives all 8 messages.
+*
+* As the receiver consumes messages, slots open up, unblocking the waiting
+* senders in FIFO order. Each unblocked sender's message is placed into
+* the deliveredMail queue, maintaining send order.
+*
+* Tests the interaction between a full mailbox, multiple blocked senders at
+* different priorities, and a single receiver draining the mailbox.
+*
+* Expected: All 8 messages received in order (Message Number 0-7).
+*           Blocked senders unblocked as slots become available.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

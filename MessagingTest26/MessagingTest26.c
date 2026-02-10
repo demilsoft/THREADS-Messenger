@@ -10,7 +10,24 @@
 
 /*********************************************************************************
 *
-* MessagingTest26
+* MessagingTest26 - Receive-First with Mailbox Free Releasing Blocked Receivers
+*
+* Creates a mailbox (5 slots, MAX_MESSAGE) and spawns:
+*   - Child1 (priority 4): Receives 5, then sends 5 (OPTION_RECEIVE_FIRST).
+*     Blocks on receive since mailbox is empty.
+*   - Child2 (priority 3): Receives 1 - blocks (empty mailbox)
+*   - Child3 (priority 2): Receives 1 - blocks (empty mailbox)
+*   - Child4 (priority 3): Receives 1 - blocks (empty mailbox)
+*   - Child5 (priority 1): Frees the mailbox (OPTION_FREE_FIRST)
+*
+* All four receivers block on the empty mailbox. Child5 then frees the
+* mailbox, signaling and unblocking all waiting receivers.
+*
+* Tests OPTION_RECEIVE_FIRST ordering (receive before send) combined with
+* mailbox_free releasing multiple blocked receivers at different priorities.
+*
+* Expected: All receivers unblocked by mailbox_free with release status.
+*           All children exit with -3.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
@@ -82,4 +99,3 @@ int MessagingEntryPoint(void* pArgs)
 
     return 0;
 } /* MessagingEntryPoint */
-

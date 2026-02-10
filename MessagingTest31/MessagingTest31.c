@@ -10,7 +10,22 @@
 
 /*********************************************************************************
 *
-* MessagingTest31
+* MessagingTest31 - Blocked Receivers with Mailbox Free and Zero-Length Receive
+*
+* Creates a 1-slot mailbox (13-byte max) and spawns:
+*   - Child1 (priority 2): Receives 1 message - blocks (mailbox empty)
+*   - Child2 (priority 3): Receives 1 message - blocks
+*   - Child3 (priority 4): Receives 1 message - blocks
+*   - Child4 (priority 2): Frees the mailbox (OPTION_FREE_FIRST)
+*
+* The parent then receives a zero-length message (NULL, 0) from the mailbox
+* with blocking. Since Child4 may have freed the mailbox, this tests the
+* behavior of receive on a mailbox being or already released.
+*
+* Mirrors Test30 but with blocked receivers instead of senders.
+*
+* Expected: mailbox_free unblocks Child1-3. Parent receive behavior depends
+*           on timing relative to mailbox_free.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
@@ -66,16 +81,16 @@ int MessagingEntryPoint(void* pArgs)
 
 
     kidpid = k_wait(&status);
-    console_output(FALSE, "%s: Exit status for child %s is %d\n", testName, childNames[kidpid], status);
+    console_output(FALSE, "%s: Exit status for child process is %d\n", testName, status);
 
     kidpid = k_wait(&status);
-    console_output(FALSE, "%s: Exit status for child %s is %d\n", testName, childNames[kidpid], status);
+    console_output(FALSE, "%s: Exit status for child process is %d\n", testName, status);
 
     kidpid = k_wait(&status);
-    console_output(FALSE, "%s: Exit status for child %s is %d\n", testName, childNames[kidpid], status);
+    console_output(FALSE, "%s: Exit status for child process is %d\n", testName, status);
 
     kidpid = k_wait(&status);
-    console_output(FALSE, "%s: Exit status for child %s is %d\n", testName, childNames[kidpid], status);
+    console_output(FALSE, "%s: Exit status for child process is %d\n", testName, status);
 
 
     k_exit(0);
@@ -84,4 +99,3 @@ int MessagingEntryPoint(void* pArgs)
 
     return 0;
 } /* MessagingEntryPoint */
-

@@ -12,6 +12,37 @@
 *
 * MessagingTest30
 *
+* Blocked senders on a 1-slot mailbox with mailbox_free and zero-length send.
+*
+* Creates a 1-slot, 50-byte mailbox. The parent (priority 5) spawns four
+* children and then sends a zero-length message (NULL, 0) which fills the
+* single slot. Three child processes each attempt to send one message at
+* different priorities (2, 3, 4). Since the slot is already full, all three
+* block waiting for a slot.
+*
+* Child4 (priority 2, OPTION_FREE_FIRST) frees the mailbox, which signals
+* and unblocks the blocked senders. They receive -5 from mailbox_send.
+*
+* Test sequence:
+*   1) Create 1-slot/50-byte mailbox.
+*   2) Spawn Child1 (pri 2), Child2 (pri 3), Child3 (pri 4), Child4 (pri 2).
+*   3) Parent sends zero-length message (NULL, 0) — succeeds, fills the slot.
+*   4) Parent calls k_wait, children run in priority order.
+*   5) Child3 (pri 4): sends 1 message, blocks (slot full).
+*   6) Child2 (pri 3): sends 1 message, blocks (slot full).
+*   7) Child1 (pri 2): sends 1 message, blocks (slot full).
+*   8) Child4 (pri 2, OPTION_FREE_FIRST): frees mailbox, unblocks 1-3.
+*   9) Parent waits for all 4 children.
+*
+* Expected output:
+*   - Parent's zero-length send succeeds (result = 0).
+*   - Children 1, 2, and 3 report send failure with result = -5 (released).
+*   - Child4 reports mailbox_free returned 0.
+*
+* Functions tested:
+*   mailbox_create, mailbox_send (blocking + zero-length),
+*   mailbox_free (with blocked senders)
+*
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
 {
@@ -27,7 +58,7 @@ int MessagingEntryPoint(void* pArgs)
 
     console_output(FALSE, "\n%s: started\n", testName);
 
-    mailboxId = mailbox_create(1, 13);
+    mailboxId = mailbox_create(1, 50);
     console_output(FALSE, "\n%s: mailbox_create returned id = %d\n", testName, mailboxId);
 
     optionSeparator = CreateMessageTestArgs(nameBuffer, sizeof(nameBuffer), testName, ++childId, mailboxId, 1, 0, OPTION_NONE);

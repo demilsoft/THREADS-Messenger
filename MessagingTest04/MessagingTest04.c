@@ -8,11 +8,21 @@
 
 /*********************************************************************************
 *
-* MessagingTest04
+* MessagingTest04 - Two-Process Send and Receive (Sender Higher Priority)
 *
-* Spawns a process that sends a message and spawns a lower priority process
-* to receive the message.
-* 
+* Creates a mailbox (10 slots, 50-byte max) and spawns two child processes:
+*   - Child1 (priority 4): Sends 1 message
+*   - Child2 (priority 3): Receives 1 message
+*
+* Child1 runs first (higher priority number = lower priority), sends the
+* message into a slot, and exits. Child2 then runs, retrieves the message
+* from the mailbox, and exits. The parent waits for both children.
+*
+* Tests basic two-process mailbox communication where the sender deposits
+* a message before the receiver runs.
+*
+* Expected: Child1 delivers message. Child2 receives it. Both exit with -3.
+*
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
 {

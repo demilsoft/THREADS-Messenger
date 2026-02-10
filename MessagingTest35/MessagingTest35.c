@@ -10,7 +10,20 @@
 
 /*********************************************************************************
 *
-* MessagingTest35
+* MessagingTest35 - mailbox_create Boundary Validation
+*
+* Tests three invalid parameter combinations for mailbox_create:
+*
+*   1. slot_size = MAX_MESSAGE + 1 (exceeds maximum allowed message size)
+*   2. slot_size = -1 (negative slot size)
+*   3. slots = -1 (negative slot count)
+*
+* Each call should fail and return -1 since the parameters are out of the
+* valid range.
+*
+* Tests input validation in mailbox_create for boundary and invalid values.
+*
+* Expected: All three mailbox_create calls return -1 (PASSED).
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
@@ -64,4 +77,3 @@ int MessagingEntryPoint(void* pArgs)
 
     return 0;
 } /* MessagingEntryPoint */
-

@@ -8,8 +8,18 @@ char inputChar;
 
 /*********************************************************************************
 *
-* MessagingTest05
+* MessagingTest14 - Terminal Read Device I/O
 *
+* Issues a TERMINAL_READ_CHAR command to "term0" to read a character, then
+* spawns a child process that calls wait_device("term0", ...) to block until
+* the terminal device completes the read operation.
+*
+* Tests the terminal read interrupt path: device_control issues the read
+* command, the I/O interrupt handler delivers the completion status to the
+* terminal's device mailbox, and wait_device wakes the blocked child.
+*
+* Expected: Child blocks on wait_device for term0, wakes when terminal
+*           interrupt fires, prints the device status, and exits with -3.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
@@ -59,4 +69,3 @@ int ReceiveTerminal(char* strArgs)
 
     return 0;
 }
-

@@ -8,8 +8,24 @@
 
 /*********************************************************************************
 *
-* MessagingTest08
+* MessagingTest08 - Mailbox Free with Blocked Senders
 *
+* Creates a 5-slot mailbox (50-byte max) and spawns five children:
+*   - Child1 (priority 3): Sends 5 messages, filling the mailbox
+*   - Child2 (priority 3): Sends 1 message (message #5) - blocks (mailbox full)
+*   - Child3 (priority 3): Sends 1 message (message #6) - blocks (mailbox full)
+*   - Child4 (priority 3): Sends 1 message (message #7) - blocks (mailbox full)
+*   - Child5 (priority 2): Frees the mailbox (OPTION_FREE_FIRST)
+*
+* After the mailbox is full and three senders are blocked, Child5 calls
+* mailbox_free. This should signal (k_kill) and unblock all three waiting
+* senders. Each sender should detect the released mailbox and return -5.
+*
+* Tests that mailbox_free correctly wakes all blocked senders and that
+* they handle the release gracefully.
+*
+* Expected: Three blocked senders unblocked with release status. All
+*           children exit with -3.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

@@ -16,8 +16,23 @@ char childNames[MAXPROC][256];
 
 /*********************************************************************************
 *
-* MessagingTest17
-**
+* MessagingTest17 - Mailbox Free with Blocked Senders on Zero-Slot Mailbox
+*
+* Creates a zero-slot mailbox (0 slots, 50-byte max) and spawns:
+*   - Child1-3 (priority 3): Each sends 1 message (blocking). Since the
+*     mailbox has 0 slots and no receiver, all three block on send.
+*   - Child4 (priority 3): SimpleDelayExit - exits quickly after a delay.
+*   - Child5 (priority 4): Frees the mailbox via mailbox_free.
+*
+* The parent waits for Child4 first to verify k_wait ordering (Child4
+* should exit before blocked children). Then Child5 frees the mailbox,
+* unblocking all three senders with a release signal (-5).
+*
+* Tests mailbox_free on a zero-slot mailbox with multiple blocked senders.
+*
+* Expected: Child4 exits first. mailbox_free unblocks Child1-3.
+*           All children exit with -3.
+*
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
 {

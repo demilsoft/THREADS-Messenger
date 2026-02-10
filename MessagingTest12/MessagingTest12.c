@@ -13,9 +13,24 @@ int privateMailboxId;
 
 /*********************************************************************************
 *
-* MessagingTest00
+* MessagingTest12 - Non-Blocking Receive with Flow Control
 *
-* Simple test case that creates one child process.
+* Creates two mailboxes:
+*   - Main mailbox (5 slots, 50-byte max): For message passing
+*   - Private mailbox (0 slots, 50-byte max): For synchronization
+*
+* Spawns two children:
+*   - Child1 (priority 4): Non-blocking sends 8 messages (5 succeed, 3 fail),
+*     waits on private mailbox, then non-blocking sends 8 more.
+*   - Child2 (priority 3): Non-blocking receives in a loop until empty,
+*     signals Child1 via private mailbox, then non-blocking receives again.
+*
+* Unlike Test11 which uses blocking receives, this test uses non-blocking
+* receives (mailbox_receive with block=FALSE). The receive loop drains the
+* mailbox until it returns -2 (empty), then synchronizes for the next round.
+*
+* Expected: First round: 5 messages received. Second round: 5 messages
+*           received. Non-blocking receives return -2 when mailbox is empty.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

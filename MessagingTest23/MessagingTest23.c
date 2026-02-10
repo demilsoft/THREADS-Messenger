@@ -11,7 +11,24 @@ int mailboxId;
 
 /*********************************************************************************
 *
-* MessagingTest23
+* MessagingTest23 - Priority-Based Receiver Wake-Up Order
+*
+* Creates a mailbox (5 slots, MAX_MESSAGE) and spawns a child at priority 1
+* that acts as a sub-parent. The sub-parent spawns:
+*   - Child1 (priority 2): Receives 1 message - blocks (empty mailbox)
+*   - Child2 (priority 4): Receives 1 message - blocks
+*   - Child3 (priority 4): Receives 1 message - blocks
+*   - Child4 (priority 5): Sends 3 messages
+*
+* Three receivers block on an empty mailbox at different priorities. When
+* the sender delivers messages, receivers should be unblocked and receive
+* messages in the order they blocked (FIFO), regardless of priority.
+*
+* Tests that blocked receivers are woken in FIFO order and that direct
+* delivery works correctly with multiple waiting receivers.
+*
+* Expected: All 3 messages delivered to waiting receivers. Receiver
+*           wake-up follows FIFO blocking order.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

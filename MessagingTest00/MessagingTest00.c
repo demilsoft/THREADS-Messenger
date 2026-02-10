@@ -6,9 +6,14 @@
 
 /*********************************************************************************
 *
-* MessagingTest00
+* MessagingTest00 - Smoke Test
 *
-* Simple test case that simply exits.
+* Verifies that the Messaging system starts and exits cleanly. No mailbox
+* operations are performed. This test validates that SchedulerEntryPoint
+* correctly initializes the messaging layer and spawns the MessagingEntryPoint
+* process.
+*
+* Expected: Process starts, prints a message, and exits with code 0.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

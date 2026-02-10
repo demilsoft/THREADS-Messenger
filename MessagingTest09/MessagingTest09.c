@@ -8,8 +8,26 @@
 
 /*********************************************************************************
 *
-* MessagingTest09
+* MessagingTest09 - Mailbox Free with Blocked Senders and Wait Ordering
 *
+* Similar to Test08 but adds a verification step for k_wait ordering.
+*
+* Creates a 5-slot mailbox (50-byte max) and spawns children:
+*   - Child1 (priority 3): Sends 5 messages, filling the mailbox
+*   - Child2-4 (priority 3): Each sends 1 message - all block (mailbox full)
+*   - Child5 (priority 2): Does nothing (0 sends, 0 receives) - exits quickly
+*   - Child6 (priority 4): Frees the mailbox (OPTION_FREE_FIRST)
+*
+* The parent first waits for Child1 to complete, then waits again expecting
+* Child5 (the pause process) to be the next to exit. This verifies k_wait
+* returns the correct child. Then Child6 frees the mailbox, unblocking
+* the three blocked senders.
+*
+* Tests mailbox_free with blocked senders combined with k_wait ordering
+* verification.
+*
+* Expected: k_wait returns pausePid for the second wait. All blocked
+*           senders unblocked. All children exit with -3.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
@@ -93,10 +111,9 @@ int MessagingEntryPoint(void* pArgs)
 	console_output(FALSE, "%s: Exit status for child %s is %d\n", testName, childNames[kidpid], status);
 
 	kidpid = k_wait(&status);
-	console_output(FALSE, "%s: Exit status for child %s is %d\n", testName, childNames[kidpid], status);
+	console_output(FALSE, "%s: Exit status for child %s is %d\n", testName, childNames[pausePid], status);
 
 	k_exit(0);
 
 	return 0;
 }
-

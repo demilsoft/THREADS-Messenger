@@ -13,7 +13,22 @@ char childNames[MAXPROC][256];
 
 /*********************************************************************************
 *
-* MessagingTest21
+* MessagingTest21 - Zero-Slot Mailbox: Sender Lower Priority than Receiver
+*
+* Creates a zero-slot mailbox (0 slots, 50-byte max) and spawns:
+*   - Child1 (priority 4): Sends 2 messages (blocking)
+*   - Child2 (priority 3): Receives 2 messages (blocking)
+*
+* Child2 (higher priority) runs first and blocks on receive (no messages).
+* Child1 then runs, sends a message which is delivered directly to the
+* waiting Child2 via the zero-slot rendezvous mechanism. This repeats for
+* the second message.
+*
+* Tests zero-slot mailbox direct handoff where the receiver is already
+* waiting when the sender arrives.
+*
+* Expected: Two messages sent and received in order via direct delivery.
+*           Both children exit with -3.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

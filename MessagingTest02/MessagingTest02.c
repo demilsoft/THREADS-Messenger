@@ -6,9 +6,15 @@
 
 /*********************************************************************************
 *
-* MessagingTest02
+* MessagingTest02 - Mailbox Exhaustion
 *
-* Creates more than the maximum number of mailboxes.
+* Attempts to create more than MAXMBOX mailboxes to test the mailbox table
+* overflow condition. Creates MAXMBOX + 3 mailboxes in a loop.
+*
+* The first MAXMBOX creations should succeed; the final 3 should fail and
+* return a negative ID, which is printed as an error.
+*
+* Expected: First MAXMBOX calls succeed. Last 3 return id < 0.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

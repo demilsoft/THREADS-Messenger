@@ -8,8 +8,24 @@
 
 /*********************************************************************************
 *
-* MessagingTest07
+* MessagingTest07 - Multiple Blocked Senders with Single Receiver
 *
+* Creates a 5-slot mailbox (50-byte max) and spawns five children:
+*   - Child1 (priority 3): Sends 5 messages, filling the mailbox
+*   - Child2 (priority 3): Sends 1 message (message #5) - blocks (mailbox full)
+*   - Child3 (priority 3): Sends 1 message (message #6) - blocks (mailbox full)
+*   - Child4 (priority 3): Sends 1 message (message #7) - blocks (mailbox full)
+*   - Child5 (priority 2): Receives 8 messages
+*
+* After Child1 fills the 5 slots, Children 2-4 each attempt to send and block
+* because no slots are available. Child5 (highest priority among children)
+* begins receiving. As each message is received and a slot frees up, one
+* blocked sender is woken to deliver its message.
+*
+* Tests multiple blocked senders being unblocked in FIFO order as slots
+* become available, and that message ordering is preserved.
+*
+* Expected: All 8 messages received in send order (Message Number 0-7).
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

@@ -20,7 +20,9 @@
 /* ------------------------- Prototypes ----------------------------------- */
 static void nullsys(system_call_arguments_t* args);
 
-typedef void (*interrupt_handler_t) (char deviceId[32], uint8_t command, uint32_t status);
+/* Note: interrupt_handler_t is already defined in THREADSLib.h with the signature:
+ *   void (*)(char deviceId[32], uint8_t command, uint32_t status, void *pArgs)
+ */
 
 static void InitializeHandlers();
 static int check_io_messaging(void);
@@ -87,12 +89,19 @@ int SchedulerEntryPoint(void* arg)
      * handlers.  Etc... */
 
     /* Initialize the devices and their mailboxes. */
-    /* Allocate mailboxes for use by the interrupt handlers */
-    for (int i = 0; i < THREADS_MAX_DEVICES; ++i)
-    {
-        // TODO: update this once mailbox_create is working
-        // devices[i].deviceMbox = mailbox_create(0, sizeof(int));
-    }
+    /* Allocate mailboxes for use by the interrupt handlers.
+     * Note: The clock device uses a zero-slot mailbox, while I/O devices
+     * (disks, terminals) need slotted mailboxes since their interrupt
+     * handlers use non-blocking sends.
+     */
+    // TODO: Create mailboxes for each device.
+    //   devices[THREADS_CLOCK_DEVICE_ID].deviceMbox = mailbox_create(0, sizeof(int));
+    //   devices[i].deviceMbox = mailbox_create(..., sizeof(int));
+
+    /* TODO: Initialize the devices using device_initialize().
+     * The devices are: disk0, disk1, term0, term1, term2, term3.
+     * Store the device handle and name in the devices array.
+     */
 
     InitializeHandlers();
 
@@ -127,8 +136,10 @@ int mailbox_create(int slots, int slot_size)
    Name - mailbox_send
    Purpose - Put a message into a slot for the indicated mailbox.
              Block the sending process if no slot available.
-   Parameters - mailbox id, pointer to data of msg, # of bytes in msg.
-   Returns - zero if successful, -1 if invalid args.
+   Parameters - mailbox id, pointer to data of msg, # of bytes in msg,
+                block flag.
+   Returns - zero if successful, -1 if invalid args, -2 if would block
+             (non-blocking mode), -5 if signaled while waiting.
    Side Effects - none.
    ----------------------------------------------------------------------- */
 int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
@@ -140,10 +151,12 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 
 /* ------------------------------------------------------------------------
    Name - mailbox_receive
-   Purpose - Put a message into a slot for the indicated mailbox.
-             Block the sending process if no slot available.
-   Parameters - mailbox id, pointer to data of msg, # of bytes in msg.
-   Returns - zero if successful, -1 if invalid args.
+   Purpose - Receive a message from the indicated mailbox.
+             Block the receiving process if no message available.
+   Parameters - mailbox id, pointer to buffer for msg, max size of buffer,
+                block flag.
+   Returns - size of received msg (>=0) if successful, -1 if invalid args,
+             -2 if would block (non-blocking mode), -5 if signaled.
    Side Effects - none.
    ----------------------------------------------------------------------- */
 int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
@@ -154,7 +167,12 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
 }
 
 /* ------------------------------------------------------------------------
-   Name - MboxRelease
+   Name - mailbox_free
+   Purpose - Frees a previously created mailbox. Any process waiting on
+             the mailbox should be signaled and unblocked.
+   Parameters - mailbox id.
+   Returns - zero if successful, -1 if invalid args, -5 if signaled
+             while closing the mailbox.
    ----------------------------------------------------------------------- */
 int mailbox_free(int mboxId)
 {
@@ -163,6 +181,13 @@ int mailbox_free(int mboxId)
     return result;
 }
 
+/* ------------------------------------------------------------------------
+   Name - wait_device
+   Purpose - Waits for a device interrupt by blocking on the device's
+             mailbox. Returns the device status via the status pointer.
+   Parameters - device name string, pointer to status output.
+   Returns - 0 if successful, -1 if invalid parameter, -5 if signaled.
+   ----------------------------------------------------------------------- */
 int wait_device(char* deviceName, int* status)
 {
     int result = 0;
@@ -173,7 +198,7 @@ int wait_device(char* deviceName, int* status)
 
     if (strcmp(deviceName, "clock") == 0)
     {
-        deviceHandle = THREADS_CLOCK_DEVICE_ID;;
+        deviceHandle = THREADS_CLOCK_DEVICE_ID;
     }
     else
     {
@@ -186,6 +211,9 @@ int wait_device(char* deviceName, int* status)
         /* set a flag that there is a process waiting on a device. */
         waitingOnDevice++;
         mailbox_receive(devices[deviceHandle].deviceMbox, status, sizeof(int), TRUE);
+
+        disableInterrupts();
+
         waitingOnDevice--;
     }
     else
@@ -194,7 +222,7 @@ int wait_device(char* deviceName, int* status)
         stop(-1);
     }
 
-    /* spec says return -1 if zapped. */
+    /* spec says return -5 if signaled. */
     if (signaled())
     {
         result = -5;
@@ -216,6 +244,15 @@ int check_io_messaging(void)
 static void InitializeHandlers()
 {
     handlers = get_interrupt_handlers();
+
+    /* TODO: Register interrupt handlers in the handlers array.
+     * Use the interrupt indices defined in THREADSLib.h:
+     *   handlers[THREADS_TIMER_INTERRUPT]   = your_clock_handler;
+     *   handlers[THREADS_IO_INTERRUPT]      = your_io_handler;
+     *   handlers[THREADS_SYS_CALL_INTERRUPT] = your_syscall_handler;
+     *
+     * Also initialize the system call vector (systemCallVector).
+     */
 
 }
 

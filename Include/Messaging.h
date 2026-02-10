@@ -9,7 +9,7 @@
 #define MAXSLOTS        2500 /* 5000 */
 #define MAX_MESSAGE     256  /* largest possible message in a single slot */
 
-/* returns id of mailbox, or -1 if no more mailboxes, -2 if invalid args */
+/* returns id of mailbox, or -1 if no more mailboxes or error */
 int mailbox_create(int slots, int slot_size);
 
 typedef struct mqattr {

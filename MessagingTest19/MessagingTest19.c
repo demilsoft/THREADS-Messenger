@@ -16,8 +16,22 @@ char childNames[MAXPROC][256];
 
 /*********************************************************************************
 *
-* MessagingTest17
-**
+* MessagingTest19 - Send to Released Mailbox
+*
+* Creates a zero-slot mailbox and spawns:
+*   - Child1-3 (priority 3): Each sends 1 message (blocking) - all block.
+*   - Child4 (priority 3): SimpleDelayExit - exits after a delay.
+*   - Child5 (priority 4): Frees the mailbox via mailbox_free.
+*
+* After all children complete, the parent attempts a non-blocking send to
+* the now-freed mailbox. This should return -1 since the mailbox is no
+* longer valid.
+*
+* Extends Test17 by adding a post-release send validation.
+*
+* Expected: Child4 exits first. mailbox_free unblocks Child1-3.
+*           Parent's send to released mailbox returns -1 (SUCCESS).
+*
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
 {

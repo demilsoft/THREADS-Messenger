@@ -15,8 +15,23 @@ char childNames[MAXPROC][256];
 
 /*********************************************************************************
 *
-* MessagingTest17
-**
+* MessagingTest18 - Mailbox Free with Blocked Receivers on Zero-Slot Mailbox
+*
+* Creates a zero-slot mailbox (0 slots, 50-byte max) and spawns:
+*   - Child1-3 (priority 3): Each receives 1 message (blocking). Since the
+*     mailbox has 0 slots and no sender, all three block on receive.
+*   - Child4 (priority 3): SimpleDelayExit - exits quickly after a delay.
+*   - Child5 (priority 4): Frees the mailbox via mailbox_free.
+*
+* The parent waits for Child4 first to verify k_wait ordering. Then Child5
+* frees the mailbox, unblocking all three receivers with a release signal.
+*
+* Mirrors Test17 but with blocked receivers instead of blocked senders.
+* Tests mailbox_free on a zero-slot mailbox with multiple blocked receivers.
+*
+* Expected: Child4 exits first. mailbox_free unblocks Child1-3.
+*           All children exit with -3.
+*
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
 {
@@ -89,9 +104,9 @@ int ReceiveOneAndExit(char* strArgs)
     console_output(FALSE, "%s: started\n", strArgs);
     console_output(FALSE, "%s: Receiving message from mailbox %d\n", strArgs, mailboxId);
     result = mailbox_receive(mailboxId, buffer, sizeof(buffer), TRUE);
-    if (result == 0)
+    if (result > 0)
     {
-        console_output(FALSE, "%s: mailbox_send Returned %d - Message '%s' RECEIVED\n", strArgs, result, buffer);
+        console_output(FALSE, "%s: mailbox_receive Returned %d - Message '%s' RECEIVED\n", strArgs, result, buffer);
     }
 
     k_exit(-3);

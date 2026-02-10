@@ -17,6 +17,36 @@ int SignalAndJoinTwoLower(char* strArgs);
 static testNameBuffer[512];
 
 
+/*********************************************************************************
+*
+*  CreateMessageTestArgs
+*
+*  Builds a combined name/argument string for use with SendAndReceive.
+*
+*  The output format is:  "<prefix>-Child<childId>:<mailbox>-<sendCount>-<receiveCount>-<options>"
+*
+*  The portion before the ':' serves as the child process name (for display).
+*  The portion after the ':' is parsed by SendAndReceive to determine what
+*  operations to perform.
+*
+*  The caller typically sets separator[0] = '\0' after spawning so that only
+*  the name portion is stored in childNames[].
+*
+*  Parameters:
+*    buffer      - output buffer for the combined string
+*    bufferSize  - size of the output buffer
+*    prefix      - test name prefix (e.g. "MessagingTest07")
+*    childId     - child number for this process
+*    mailbox     - mailbox ID to operate on
+*    sendCount   - number of messages to send
+*    receiveCount- number of messages to receive
+*    options     - bitmask of OPTION_* flags; upper byte is the start number
+*                  when OPTION_START_NUMBER is set
+*
+*  Returns:
+*    Pointer to the ':' separator character within the buffer.
+*
+*********************************************************************************/
 char* CreateMessageTestArgs(char* buffer, int bufferSize, char* prefix, int childId, int mailbox, int sendCount, int receiveCount, int options)
 {
     char* separator;
@@ -29,6 +59,41 @@ char* CreateMessageTestArgs(char* buffer, int bufferSize, char* prefix, int chil
 }
 
 
+/*********************************************************************************
+*
+*  SendAndReceive
+*
+*  General-purpose child process used by most messaging tests. Parses the
+*  argument string (created by CreateMessageTestArgs) to determine which
+*  mailbox to use and how many sends/receives to perform.
+*
+*  The argument string format after the ':' is:
+*    "<mailboxId>-<sendCount>-<receiveCount>-<options>"
+*
+*  Execution order:
+*    1) If OPTION_FREE_FIRST is set, calls mailbox_free before any sends/receives.
+*    2) Performs the first operation loop:
+*       - Sends (sendCount messages), unless OPTION_RECEIVE_FIRST is set.
+*       - Receives (receiveCount messages), if OPTION_RECEIVE_FIRST is set.
+*    3) Switches to the other operation and performs the second loop.
+*       (e.g., if it sent first, it receives second.)
+*
+*  Option flags (may be combined):
+*    OPTION_NONE          (0x00) - Default: blocking send, send-first order.
+*    OPTION_FREE_FIRST    (0x01) - Call mailbox_free before send/receive loops.
+*    OPTION_RECEIVE_FIRST (0x02) - Receive before sending (instead of send-first).
+*    OPTION_NON_BLOCKING  (0x04) - Use non-blocking send/receive (wait=FALSE).
+*    OPTION_START_NUMBER  (0x80) - Upper byte of options holds the starting
+*                                  message number (for sequential numbering
+*                                  across multiple child processes).
+*
+*  Messages are formatted as "Message Number <N>" where N starts at 0
+*  (or at the value in the upper byte if OPTION_START_NUMBER is set).
+*
+*  Exits with code -3 on normal completion. Exit code -5 is set by the
+*  test framework when the process is released via mailbox_free.
+*
+*********************************************************************************/
 int SendAndReceive(char* strArgs)
 {
     int i, result;
@@ -53,13 +118,12 @@ int SendAndReceive(char* strArgs)
 
     if (options & OPTION_NON_BLOCKING)
     {
-        // get the high low order byte and start the message number with the value
         blocking = FALSE;
     }
 
     if (options & OPTION_START_NUMBER)
     {
-        // get the high low order byte and start the message number with the value
+        /* extract the starting message number from the upper byte */
         messageStartNumber = options >> 8 & 0x000000FF;
     }
     /* see if the free first option is set. */
@@ -81,6 +145,7 @@ int SendAndReceive(char* strArgs)
         bSending = TRUE;
     }
 
+    /* Two passes: first pass does the primary operation, second does the other. */
     for (int j = 0; j < 2; ++j)
     {
         for (i = 0; i < loopCount; i++)
@@ -112,7 +177,7 @@ int SendAndReceive(char* strArgs)
             }
         }
 
-        /* switch operations */
+        /* switch operations for the second pass */
         if (options & OPTION_RECEIVE_FIRST)
         {
             loopCount = sendCount;
@@ -131,7 +196,22 @@ int SendAndReceive(char* strArgs)
     return 0;
 }
 
-/* Can only get this for the test name since there is one buffer for this. */
+/*********************************************************************************
+*
+*  GetTestName
+*
+*  Extracts the test name from a __FILE__ path by stripping the directory
+*  prefix and the ".c" extension. Uses a single static buffer, so only one
+*  test name can be active at a time.
+*
+*  Parameters:
+*    filename - typically __FILE__, e.g. "C:\\path\\MessagingTest07.c"
+*
+*  Returns:
+*    Pointer to the static buffer containing the test name,
+*    e.g. "MessagingTest07".
+*
+*********************************************************************************/
 char* GetTestName(char* filename)
 {
     char* testName;
@@ -146,9 +226,19 @@ char* GetTestName(char* filename)
 
     return (char*)testNameBuffer;
 }
-/*
-*  SystemDelay - busy wait delay for the specified time.
-*/
+
+/*********************************************************************************
+*
+*  SystemDelay
+*
+*  Busy-wait delay for the specified duration in milliseconds. Uses
+*  read_clock() for timing. Optimization is disabled to prevent the
+*  compiler from eliminating the spin loop.
+*
+*  Parameters:
+*    millisTime - duration to delay in milliseconds
+*
+*********************************************************************************/
 #pragma optimize( "", off )
 void SystemDelay(int millisTime)
 {
@@ -163,10 +253,20 @@ void SystemDelay(int millisTime)
 }
 #pragma optimize( "", on )
 
-/*
-*  DelayAndDump - delays and with dumps process if name ends 
-*                 in a value divisible by 4.
-*/
+/*********************************************************************************
+*
+*  DelayAndDump
+*
+*  Child process that runs for ~10 seconds. If the trailing number in its
+*  name is divisible by 4, it periodically calls display_process_table()
+*  (every ~5 seconds starting at 2.5s). All instances exit after 10 seconds.
+*
+*  Exits with code -(pid).
+*
+*  Parameters:
+*    arg - process name string (used for output and to extract child number)
+*
+*********************************************************************************/
 int DelayAndDump(char* arg)
 {
     unsigned long startTime, currentTime;
@@ -216,9 +316,14 @@ int DelayAndDump(char* arg)
 
 /*********************************************************************************
 *
-* SimpleDelayExit
+*  SimpleDelayExit
 *
-* Simple test process that delays and exits.
+*  Minimal child process: prints "started", delays briefly (10ms),
+*  prints "quitting", and exits with code -3. Used as a lightweight
+*  child in tests that need a process to exist temporarily.
+*
+*  Parameters:
+*    pArgs - process name string (cast to char*), may be NULL
 *
 *********************************************************************************/
 int SimpleDelayExit(void* pArgs)
@@ -237,9 +342,16 @@ int SimpleDelayExit(void* pArgs)
 
 /*********************************************************************************
 *
-*  SimpleBockExit - Blocks then exits.
-*                 
-*******************************************************************************/
+*  SimpleBlockExit
+*
+*  Child process that blocks on status code 14 until externally unblocked.
+*  Prints "started" before blocking and "quitting" after being unblocked.
+*  Exits with code -3.
+*
+*  Parameters:
+*    pArgs - process name string (cast to char*), may be NULL
+*
+*********************************************************************************/
 int SimpleBockExit(void* pArgs)
 {
     if (pArgs != NULL)
@@ -256,9 +368,15 @@ int SimpleBockExit(void* pArgs)
 
 /*********************************************************************************
 *
-*  SpawnTwoPriorityFour - Spawns two priority 4 child processes.
+*  SpawnTwoPriorityFour
 *
-*******************************************************************************/
+*  Spawns two SimpleDelayExit children at priority 4, then waits for both
+*  to complete. Reports the exit status of each child. Exits with code -3.
+*
+*  Parameters:
+*    strArgs - process name string
+*
+*********************************************************************************/
 int SpawnTwoPriorityFour(char* strArgs)
 {
     int kidpid;
@@ -297,9 +415,15 @@ int SpawnTwoPriorityFour(char* strArgs)
 
 /*********************************************************************************
 *
-*  SpawnTwoPriorityTwo - Spawns two priority 2 child processes.
+*  SpawnTwoPriorityTwo
 *
-*******************************************************************************/
+*  Spawns two SimpleDelayExit children at priority 2, then waits for both
+*  to complete. Reports the exit status of each child. Exits with code 1.
+*
+*  Parameters:
+*    strArgs - process name string
+*
+*********************************************************************************/
 int SpawnTwoPriorityTwo(char* strArgs)
 {
     int kidpid;
@@ -337,9 +461,15 @@ int SpawnTwoPriorityTwo(char* strArgs)
 
 /*********************************************************************************
 *
-*  SpawnOnePriorityFour - Spawns one priority 4 child process.
+*  SpawnOnePriorityFour
 *
-*******************************************************************************/
+*  Spawns one SimpleDelayExit child at priority 4, waits for it, and
+*  reports its exit status. Exits with code -3.
+*
+*  Parameters:
+*    strArgs - process name string
+*
+*********************************************************************************/
 int SpawnOnePriorityFour(char* strArgs)
 {
     int kidpid;
@@ -366,9 +496,16 @@ int SpawnOnePriorityFour(char* strArgs)
 
 /*********************************************************************************
 *
-*  SpawnOnePriorityOne - Spawns one priority 1 child process.
+*  SpawnOnePriorityOne
 *
-*******************************************************************************/
+*  Spawns one SimpleDelayExit child at priority 1 (highest), waits for it,
+*  and reports its exit status. If the wait returns -1, reports that the
+*  process was signaled. Exits with code -3.
+*
+*  Parameters:
+*    strArgs - process name string
+*
+*********************************************************************************/
 int SpawnOnePriorityOne(char* strArgs)
 {
     int kidpid;
@@ -401,9 +538,20 @@ int SpawnOnePriorityOne(char* strArgs)
 
 /*********************************************************************************
 *
-*  SignalAndJoinTwoLower - Spawns two processes then signals then and joins them
+*  SignalAndJoinTwoLower
 *
-*******************************************************************************/
+*  Spawns two SpawnOnePriorityOne children at priority 2. After they start
+*  (and each spawn their own priority-1 grandchild), this process:
+*    1) Signals (SIG_TERM) and joins the first child.
+*    2) Signals (SIG_TERM) and joins the second child.
+*    3) Waits for any remaining grandchildren.
+*  Calls display_process_table() between each step for debugging.
+*  Exits with code -3.
+*
+*  Parameters:
+*    strArgs - process name string
+*
+*********************************************************************************/
 int SignalAndJoinTwoLower(char* strArgs)
 {
     int child1, child2;
@@ -455,9 +603,20 @@ int SignalAndJoinTwoLower(char* strArgs)
 }
 
 
-/*
-*  Returns the integer at the end of name.
-*/
+/*********************************************************************************
+*
+*  GetChildNumber
+*
+*  Extracts the trailing integer from a process name string. Used to
+*  determine which child number a process is (e.g. "Test-Child3" returns 3).
+*
+*  Parameters:
+*    name - process name string ending in digits
+*
+*  Returns:
+*    The integer value of the trailing digits, or 0 if none found.
+*
+*********************************************************************************/
 int GetChildNumber(char* name)
 {
     int intIndex;
@@ -476,6 +635,18 @@ int GetChildNumber(char* name)
 
 int pidToJoin;
 int pids[BLOCK_UNBLOCK_COUNT];
+
+/*********************************************************************************
+*
+*  UnblockTwoPriorities
+*
+*  Iterates through the global pids[] array and unblocks each process.
+*  Unblocks BLOCK_UNBLOCK_COUNT * 2 processes total. Exits with code -2.
+*
+*  Parameters:
+*    strArgs - process name string
+*
+*********************************************************************************/
 int UnblockTwoPriorities(char* strArgs)
 {
     int status = 0;
@@ -493,6 +664,17 @@ int UnblockTwoPriorities(char* strArgs)
     return 0;
 }
 
+/*********************************************************************************
+*
+*  SpawnJoiner
+*
+*  Joins (k_join) the process identified by the global pidToJoin variable.
+*  Reports the join result and exit status. Exits with code -2.
+*
+*  Parameters:
+*    strArgs - process name string
+*
+*********************************************************************************/
 int SpawnJoiner(char* strArgs)
 {
     int status = 0xff;
@@ -512,6 +694,18 @@ int SpawnJoiner(char* strArgs)
 
 }
 
+/*********************************************************************************
+*
+*  DumpProcess
+*
+*  Simple child process that calls display_process_table() and exits.
+*  Used to capture a snapshot of the process table at a specific point
+*  in a test scenario. Exits with code -3.
+*
+*  Parameters:
+*    strArgs - process name string
+*
+*********************************************************************************/
 int DumpProcess(char* strArgs)
 {
     int status = 0xff;
@@ -526,6 +720,18 @@ int DumpProcess(char* strArgs)
     return 0;
 }
 
+/*********************************************************************************
+*
+*  SpawnDumpProcess
+*
+*  Spawns a DumpProcess child at priority 2 and waits for it. Sets the
+*  global gPid to the child's pid (if gPid has not already been set).
+*  Reports the child's exit status, or notes if signaled. Exits with code -3.
+*
+*  Parameters:
+*    strArgs - process name string
+*
+*********************************************************************************/
 int SpawnDumpProcess(char* strArgs)
 {
     int kidpid;
@@ -563,6 +769,17 @@ int SpawnDumpProcess(char* strArgs)
 }
 
 
+/*********************************************************************************
+*
+*  SignalJoinGlobalPid
+*
+*  Sends SIG_TERM to the process identified by the global gPid, then
+*  joins it and reports the exit status. Exits with code 5.
+*
+*  Parameters:
+*    arg - process name string
+*
+*********************************************************************************/
 int SignalJoinGlobalPid(char* arg)
 {
     int exitCode;
@@ -581,6 +798,17 @@ int SignalJoinGlobalPid(char* arg)
     return 0;
 }
 
+/*********************************************************************************
+*
+*  JoinProcess
+*
+*  Joins the process identified by the global gPid (without signaling it
+*  first) and reports the exit status. Exits with code 5.
+*
+*  Parameters:
+*    arg - process name string
+*
+*********************************************************************************/
 int JoinProcess(char* arg)
 {
     int exitCode;

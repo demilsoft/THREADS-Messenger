@@ -13,9 +13,24 @@ int privateMailboxId;
 
 /*********************************************************************************
 *
-* MessagingTest11
+* MessagingTest11 - Flow Control with Private Zero-Slot Mailbox
 *
-* Simple test case that creates one child process.
+* Creates two mailboxes:
+*   - Main mailbox (5 slots, 50-byte max): For message passing
+*   - Private mailbox (0 slots, 50-byte max): For synchronization
+*
+* Spawns two children:
+*   - Child1 (priority 4): Non-blocking sends 8 messages (5 succeed, 3 fail),
+*     then waits on private mailbox, then non-blocking sends 8 more.
+*   - Child2 (priority 3): Blocking receives 5 messages, signals Child1 via
+*     private mailbox, then blocking receives 5 more.
+*
+* Tests non-blocking send behavior when mailbox is full (returns -2 for
+* messages 5-7), zero-slot mailbox used for process synchronization, and
+* two rounds of send/receive coordinated by the private mailbox signal.
+*
+* Expected: First round: 5 delivered, 3 fail. Second round: 5 delivered,
+*           3 fail. Child2 receives 10 total messages.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)

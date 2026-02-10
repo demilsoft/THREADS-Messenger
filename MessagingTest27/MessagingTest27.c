@@ -10,7 +10,27 @@
 
 /*********************************************************************************
 *
-* MessagingTest27
+* MessagingTest27 - Receive-First with k_wait Ordering and Mailbox Free
+*
+* Creates a mailbox (5 slots, MAX_MESSAGE) and spawns:
+*   - Child1 (priority 1): Receives 2, then sends 2 (OPTION_RECEIVE_FIRST).
+*     Blocks on receive since mailbox is empty.
+*   - Child2 (priority 2): Receives 1 - blocks
+*   - Child3 (priority 3): Receives 1 - blocks
+*   - Child4 (priority 4): Receives 1 - blocks
+*   - Child5 (priority 1): Does nothing (0 sends, 0 receives) - exits quickly
+*   - Child6 (priority 1): Frees the mailbox (OPTION_FREE_FIRST)
+*
+* After all receivers block, Child5 is spawned to verify k_wait ordering
+* (should be the first to exit since it does no blocking). The parent
+* verifies that k_wait returns Child5's pid first. Then Child6 frees the
+* mailbox, unblocking all receivers.
+*
+* Tests OPTION_RECEIVE_FIRST, k_wait ordering verification, and mailbox_free
+* releasing blocked receivers.
+*
+* Expected: k_wait returns Child5 first. mailbox_free unblocks Child1-4.
+*           All children exit with -3.
 *
 *********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
@@ -98,4 +118,3 @@ int MessagingEntryPoint(void* pArgs)
 
     return 0;
 } /* MessagingEntryPoint */
-

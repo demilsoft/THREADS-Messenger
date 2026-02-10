@@ -1,5 +1,4 @@
 
-
 #include <stdio.h>
 #include "THREADSLib.h"
 #include "Scheduler.h"
@@ -7,12 +6,20 @@
 #include "TestCommon.h"
 
 /*********************************************************************************
- *
- * MessagingTest03
- *
- * Simple mailbox send and receive test.
- *
- *********************************************************************************/
+*
+* MessagingTest03 - Single-Process Send and Receive
+*
+* Creates a mailbox (10 slots, 50-byte max) and performs a blocking send
+* followed by a blocking receive in the same process. The message "hello there"
+* is sent and then retrieved.
+*
+* Since the mailbox has available slots, the send completes immediately without
+* blocking. The receive then retrieves the message from the mailbox.
+*
+* Expected: Send returns 0 (success). Receive returns the message size and
+*           the received buffer contains "hello there".
+*
+*********************************************************************************/
 int MessagingEntryPoint(void* pArgs)
 {
 	int mailboxId;
