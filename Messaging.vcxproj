@@ -28,7 +28,7 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
-  </ItemGroup>  
+  </ItemGroup>
   <ItemGroup Condition="'$(HasSolution)'=='False'">
       <ClCompile Include="Messaging.c"/>
   </ItemGroup>
