@@ -29,6 +29,12 @@ static int check_io_messaging(void);
 extern int MessagingEntryPoint(void*);
 static void checkKernelMode(const char* functionName);
 
+//////////// GLOBAL VARIABLES ////////////
+static int g_mbox_inuse[MAXMBOX];               // 0 = Free, 1 = Used
+static int g_mbox_slots[MAXMBOX];               // MAX slots requested 
+static int g_mbox_slot_size[MAXMBOX];           // MAX bytes per message 
+//////////////////////////////////////////
+
 struct psr_bits {
     unsigned int cur_int_enable : 1;
     unsigned int cur_mode : 1;
@@ -109,13 +115,7 @@ int SchedulerEntryPoint(void* arg)
     enableInterrupts();
 
     /* Spawn the test process (MessagingEntryPoint is provided by the test) */
-    int pid = k_spawn(
-        "MessagingTest00",
-        MessagingEntryPoint,
-        NULL,
-        8192,            /* stack size (safe default) */
-        3                /* priority (mid-ish) */
-    );
+    int pid = k_spawn("MessagingTest00", MessagingEntryPoint, NULL, STACK_SIZE, 3);                        /* Staring Priority MIDDLE */
 
     if (pid < 0)
     {
@@ -151,6 +151,29 @@ int mailbox_create(int slots, int slot_size)
 {
     int newId = -1;
 
+    /* Validate parameters */
+    if (slots < 0 || slots > MAXSLOTS)
+        return -1;
+
+    if (slot_size <= 0 || slot_size > MAX_MESSAGE)
+        return -1;
+
+    /* Find a free mailbox entry */
+    disableInterrupts();
+
+    for (int i = 0; i < MAXMBOX; i++)
+    {
+        if (g_mbox_inuse[i] == 0)
+        {
+            g_mbox_inuse[i] = 1;
+            g_mbox_slots[i] = slots;
+            g_mbox_slot_size[i] = slot_size;
+            newId = i;
+            break;
+        }
+    }
+
+    enableInterrupts();
 
     return newId;
 } /* mailbox_create */
