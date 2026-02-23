@@ -30,9 +30,11 @@ extern int MessagingEntryPoint(void*);
 static void checkKernelMode(const char* functionName);
 
 //////////// GLOBAL VARIABLES ////////////
-static int g_mbox_inuse[MAXMBOX];               // 0 = Free, 1 = Used
-static int g_mbox_slots[MAXMBOX];               // MAX slots requested 
-static int g_mbox_slot_size[MAXMBOX];           // MAX bytes per message 
+static int g_mbox_inuse[MAXMBOX];               // 0 = Free, 1 = Used   TEST02 ADD
+static int g_mbox_slots[MAXMBOX];               // MAX slots requested   TEST02 ADD 
+static int g_mbox_slot_size[MAXMBOX];           // MAX bytes per message    TEST02 ADD
+static SlotPtr freeSlotHead = NULL;             // Slot free list management   TEST02 ADD
+static int g_mbox_maxSlots[MAXMBOX];            // TEST03 ADD
 //////////////////////////////////////////
 
 struct psr_bits {
@@ -73,6 +75,13 @@ static DeviceManagementData devices[THREADS_MAX_DEVICES];
 static int nextMailboxId = 0;
 static int waitingOnDevice = 0;
 
+////// FUNCTION PROTOTYPES //////
+static void init_slot_freelist(void);   // TEST03 ADD
+static SlotPtr alloc_slot(void);        // TEST03 ADD
+static void free_slot(SlotPtr s);       // TEST03 ADD
+static void init_mailboxes(void);        // TEST03 ADD
+/////////////////////////////////
+
 
 /* ------------------------------------------------------------------------
      Name - SchedulerEntryPoint
@@ -110,12 +119,15 @@ int SchedulerEntryPoint(void* arg)
      * Store the device handle and name in the devices array.
      */
 
-    InitializeHandlers();
 
+    init_mailboxes();       // TEST03 ADD
+    init_slot_freelist();   // TEST03 ADD
+
+    InitializeHandlers();
     enableInterrupts();
 
     /* Spawn the test process (MessagingEntryPoint is provided by the test) */
-    int pid = k_spawn("MessagingTest00", MessagingEntryPoint, NULL, STACK_SIZE, 3);                        /* Staring Priority MIDDLE */
+    int pid = k_spawn("MessagingTest00", MessagingEntryPoint, NULL, THREADS_MIN_STACK_SIZE, 5);       /* Staring Priority MIDDLE */
 
     if (pid < 0)
     {
@@ -151,32 +163,76 @@ int mailbox_create(int slots, int slot_size)
 {
     int newId = -1;
 
-    /* Validate parameters */
-    if (slots < 0 || slots > MAXSLOTS)
-        return -1;
+    if (slots < 0 || slots > MAXSLOTS) return -1;
+    if (slot_size <= 0 || slot_size > MAX_MESSAGE) return -1;
 
-    if (slot_size <= 0 || slot_size > MAX_MESSAGE)
-        return -1;
-
-    /* Find a free mailbox entry */
     disableInterrupts();
 
     for (int i = 0; i < MAXMBOX; i++)
     {
-        if (g_mbox_inuse[i] == 0)
+        if (mailboxes[i].status == MBSTATUS_EMPTY)
         {
-            g_mbox_inuse[i] = 1;
-            g_mbox_slots[i] = slots;
-            g_mbox_slot_size[i] = slot_size;
+            mailboxes[i].pSlotListHead = NULL;
+            mailboxes[i].mbox_id = i;
+            mailboxes[i].slotSize = slot_size;
+            mailboxes[i].slotCount = 0; /* current messages in queue */
+
+            if (slots == 0) mailboxes[i].type = MB_ZEROSLOT;
+            else if (slots == 1) mailboxes[i].type = MB_SINGLESLOT;
+            else mailboxes[i].type = MB_MULTISLOT;
+
+            mailboxes[i].status = MBSTATUS_INUSE;
+
+            /* IMPORTANT: you also need the capacity somewhere.
+             * Your struct doesn't have "maxSlots", so many projects interpret
+             * "slotCount" as current count and store max elsewhere.
+             *
+             * For now, we'll treat slotCount as CURRENT and store capacity in slotSize? no.
+             * Better: add a new field to mailbox in message.h (allowed by "other items as needed")
+             * BUT since you already have the struct, we can store capacity by reusing
+             * slotCount as MAX until later? That breaks receive logic.
+             *
+             * So: we'll add a static array for maxSlots keyed by mailbox id.
+             */
             newId = i;
+			g_mbox_maxSlots[i] = slots; // TEST03 ADD
             break;
         }
     }
 
     enableInterrupts();
-
     return newId;
-} /* mailbox_create */
+}
+//int mailbox_create(int slots, int slot_size)
+//{
+//    int newId = -1;
+//
+//    /* Validate parameters */
+//    if (slots < 0 || slots > MAXSLOTS)
+//        return -1;
+//
+//    if (slot_size <= 0 || slot_size > MAX_MESSAGE)
+//        return -1;
+//
+//    /* Find a free mailbox entry */
+//    disableInterrupts();
+//
+//    for (int i = 0; i < MAXMBOX; i++)
+//    {
+//        if (g_mbox_inuse[i] == 0)
+//        {
+//            g_mbox_inuse[i] = 1;
+//            g_mbox_slots[i] = slots;
+//            g_mbox_slot_size[i] = slot_size;
+//            newId = i;
+//            break;
+//        }
+//    }
+//
+//    enableInterrupts();
+//
+//    return newId;
+//} /* mailbox_create */
 
 
 /* ------------------------------------------------------------------------
@@ -191,9 +247,56 @@ int mailbox_create(int slots, int slot_size)
    ----------------------------------------------------------------------- */
 int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 {
-    int result = -1;
+	// TEST03 ADD: Validate parameters and mailbox state.
+    if (mboxId < 0 || mboxId >= MAXMBOX) return -1;
+    if (pMsg == NULL) return -1;
+    if (msg_size < 0) return -1;
 
-    return result;
+    disableInterrupts();
+
+    MailBox* m = &mailboxes[mboxId];
+    if (m->status != MBSTATUS_INUSE)
+    {
+        enableInterrupts();
+        return -1;
+    }
+
+    if (msg_size > m->slotSize || msg_size > MAX_MESSAGE)
+    {
+        enableInterrupts();
+        return -1;
+    }
+
+    /* Test03 uses a slotted mailbox, so enforce capacity */
+    if (g_mbox_maxSlots[mboxId] > 0 && m->slotCount >= g_mbox_maxSlots[mboxId])
+    {
+        /* full */
+        enableInterrupts();
+        return wait ? -2 : -2;  /* later: block if wait==TRUE */
+    }
+
+    SlotPtr s = alloc_slot();
+    if (s == NULL)
+    {
+        enableInterrupts();
+        return -1; /* out of slots */
+    }
+
+    s->mbox_id = mboxId;
+    s->messageSize = msg_size;
+    memcpy(s->message, pMsg, (size_t)msg_size);
+
+    /* push onto mailbox slot list head */
+    s->pNextSlot = m->pSlotListHead;
+    s->pPrevSlot = NULL;
+    if (m->pSlotListHead)
+        m->pSlotListHead->pPrevSlot = s;
+    m->pSlotListHead = s;
+
+    m->slotCount++;
+
+    enableInterrupts();
+    return 0;
 }
 
 /* ------------------------------------------------------------------------
@@ -208,9 +311,47 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
    ----------------------------------------------------------------------- */
 int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
 {
-    int result = -1;
+	// TEST03 ADD: Validate parameters and mailbox state.
+    if (mboxId < 0 || mboxId >= MAXMBOX) return -1;
+    if (pMsg == NULL) return -1;
+    if (msg_size < 0) return -1;
 
-    return result;
+    disableInterrupts();
+
+    MailBox* m = &mailboxes[mboxId];
+    if (m->status != MBSTATUS_INUSE)
+    {
+        enableInterrupts();
+        return -1;
+    }
+
+    SlotPtr s = m->pSlotListHead;
+    if (s == NULL)
+    {
+        enableInterrupts();
+        return wait ? -2 : -2; /* later: block if wait==TRUE */
+    }
+
+    if (msg_size < s->messageSize)
+    {
+        enableInterrupts();
+        return -1; /* buffer too small */
+    }
+
+    /* pop from head */
+    m->pSlotListHead = s->pNextSlot;
+    if (m->pSlotListHead)
+        m->pSlotListHead->pPrevSlot = NULL;
+
+    m->slotCount--;
+
+    int n = s->messageSize;
+    memcpy(pMsg, s->message, (size_t)n);
+
+    free_slot(s);
+
+    enableInterrupts();
+    return n;
 }
 
 /* ------------------------------------------------------------------------
@@ -310,6 +451,61 @@ static void nullsys(system_call_arguments_t* args)
     stop(1);
 } /* nullsys */
 
+
+static void init_slot_freelist(void)
+{
+    freeSlotHead = NULL;
+    for (int i = 0; i < MAXSLOTS; i++)
+    {
+        mailSlots[i].pNextSlot = freeSlotHead;
+        mailSlots[i].pPrevSlot = NULL;
+        mailSlots[i].mbox_id = -1;
+        mailSlots[i].messageSize = 0;
+        freeSlotHead = &mailSlots[i];
+    }
+}
+
+static SlotPtr alloc_slot(void)
+{
+    SlotPtr s = freeSlotHead;
+    if (s != NULL)
+    {
+        freeSlotHead = s->pNextSlot;
+        if (freeSlotHead) freeSlotHead->pPrevSlot = NULL;
+
+        s->pNextSlot = NULL;
+        s->pPrevSlot = NULL;
+        s->mbox_id = -1;
+        s->messageSize = 0;
+    }
+    return s;
+}
+
+static void free_slot(SlotPtr s)
+{
+    if (!s) return;
+    s->pNextSlot = freeSlotHead;
+    s->pPrevSlot = NULL;
+    s->mbox_id = -1;
+    s->messageSize = 0;
+    freeSlotHead = s;
+}
+
+static void init_mailboxes(void)
+{
+    for (int i = 0; i < MAXMBOX; i++)
+    {
+        mailboxes[i].pSlotListHead = NULL;
+        mailboxes[i].mbox_id = i;
+        mailboxes[i].type = MB_MAXTYPES;          /* unknown until create */
+        mailboxes[i].status = MBSTATUS_EMPTY;     /* not allocated yet */
+        mailboxes[i].slotSize = 0;
+        mailboxes[i].slotCount = 0;
+
+        g_mbox_maxSlots[i] = 0; // TEST03 ADD: initialize maxSlots array to 0 for all mailboxes
+    }
+
+}
 
 /*****************************************************************************
    Name - checkKernelMode
