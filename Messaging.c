@@ -77,6 +77,7 @@ static int waitingOnDevice = 0;
 int SchedulerEntryPoint(void* arg)
 {
     // TODO: check for kernel mode
+    checkKernelMode("SchedulerEntryPoint");
 
     /* Disable interrupts */
     disableInterrupts();
@@ -107,7 +108,30 @@ int SchedulerEntryPoint(void* arg)
 
     enableInterrupts();
 
-    /* TODO: Create a process for Messaging, then block on a wait until messaging exits.*/
+    /* Spawn the test process (MessagingEntryPoint is provided by the test) */
+    int pid = k_spawn(
+        "MessagingTest00",
+        MessagingEntryPoint,
+        NULL,
+        8192,            /* stack size (safe default) */
+        3                /* priority (mid-ish) */
+    );
+
+    if (pid < 0)
+    {
+        console_output(FALSE, "SchedulerEntryPoint: k_spawn failed (%d)\n", pid);
+        k_exit(1);
+    }
+
+    /* Wait for the child to exit so shutdown is clean */
+    int childExit = -999;
+    int w = k_wait(&childExit);
+
+    if (w < 0)
+    {
+        console_output(FALSE, "SchedulerEntryPoint: k_wait failed (%d)\n", w);
+        k_exit(1);
+    }
 
     k_exit(0);
 
