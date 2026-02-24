@@ -3,7 +3,6 @@
 //   College of Applied Science and Technology
 //   The University of Arizona
 //   CYBV 489
-//
 //   Student Names:  Dean Lewis
 ///////////////////////////////////////////////////////////////////////////
 #include <Windows.h>
@@ -16,24 +15,22 @@
 #include <stdint.h>
 #include "message.h"
 
-/* ------------------------- Prototypes ----------------------------------- */
-static void nullsys(system_call_arguments_t* args);
+//////////// USER GLOBAL VARIABLES ////////////
+static int g_mailbox_inuse[MAXMBOX];                // 0 = Free, 1 = Used   TEST02 ADD
+static int g_mailbox_slots[MAXMBOX];                // MAX slots requested   TEST02 ADD 
+static int g_mailbox_slot_size[MAXMBOX];            // MAX bytes per message    TEST02 ADD
+static SlotPtr freeSlotHead = NULL;                 // Slot free list management   TEST02 ADD
+static int g_mailbox_maxSlots[MAXMBOX];             // TEST03 ADD
+///////////////////////////////////////////////
 
-/* Note: interrupt_handler_t is already defined in THREADSLib.h with the signature:
- *   void (*)(char deviceId[32], uint8_t command, uint32_t status, void *pArgs)
- */
-static void InitializeHandlers();
-static int check_io_messaging(void);
-extern int MessagingEntryPoint(void*);
-static void checkKernelMode(const char* functionName);
-
-//////////// GLOBAL VARIABLES ////////////
-static int g_mbox_inuse[MAXMBOX];               // 0 = Free, 1 = Used   TEST02 ADD
-static int g_mbox_slots[MAXMBOX];               // MAX slots requested   TEST02 ADD 
-static int g_mbox_slot_size[MAXMBOX];           // MAX bytes per message    TEST02 ADD
-static SlotPtr freeSlotHead = NULL;             // Slot free list management   TEST02 ADD
-static int g_mbox_maxSlots[MAXMBOX];            // TEST03 ADD
-//////////////////////////////////////////
+/* -------------------------- Globals ------------------------------------- */
+/* Obtained from THREADS*/
+interrupt_handler_t* handlers;
+/* system call array of function pointers */
+void (*systemCallVector[THREADS_MAX_SYSCALLS])(system_call_arguments_t* args);
+/* the mail boxes */
+MailBox mailboxes[MAXMBOX];
+MailSlot mailSlots[MAXSLOTS];
 
 struct psr_bits {
     unsigned int cur_int_enable : 1;
@@ -48,15 +45,6 @@ union psr_values {
     unsigned int integer_part;
 };
 
-/* -------------------------- Globals ------------------------------------- */
-/* Obtained from THREADS*/
-interrupt_handler_t* handlers;
-/* system call array of function pointers */
-void (*systemCallVector[THREADS_MAX_SYSCALLS])(system_call_arguments_t* args);
-/* the mail boxes */
-MailBox mailboxes[MAXMBOX];
-MailSlot mailSlots[MAXSLOTS];
-
 typedef struct
 {
     void* deviceHandle;
@@ -68,13 +56,23 @@ typedef struct
 static DeviceManagementData devices[THREADS_MAX_DEVICES];
 static int nextMailboxId = 0;
 static int waitingOnDevice = 0;
+/* -------------------------- Globals ------------------------------------- */
 
-/////////// FUNCTION PROTOTYPES /////////////////////////
+/* ------------------------- Prototypes ----------------------------------- */
+static void nullsys(system_call_arguments_t* args);
+/* Note: interrupt_handler_t is already defined in THREADSLib.h with the signature:
+ *   void (*)(char deviceId[32], uint8_t command, uint32_t status, void *pArgs) */
+static void InitializeHandlers();
+static int check_io_messaging(void);
+extern int MessagingEntryPoint(void*);
+static void checkKernelMode(const char* functionName);
+/* ------------------------- Prototypes ----------------------------------- */
+//////////////////// HELPER FUNCTION PROTOTYPES /////////////////////////
 static void init_slot_freelist(void);       // TEST03 ADD
-static SlotPtr alloc_slot(void);            // TEST03 ADD
+static SlotPtr allocate_slot(void);         // TEST03 ADD
 static void free_slot(SlotPtr s);           // TEST03 ADD
 static void init_mailboxes(void);           // TEST03 ADD
-/////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////
 
 
 /* ------------------------------------------------------------------------
@@ -104,6 +102,7 @@ int SchedulerEntryPoint(void* arg)
       * (disks, terminals) need slotted mailboxes since their interrupt
       * handlers use non-blocking sends.
       */
+
       // TODO: Create mailboxes for each device.
       //   devices[THREADS_CLOCK_DEVICE_ID].deviceMbox = mailbox_create(0, sizeof(int));
       //   devices[i].deviceMbox = mailbox_create(..., sizeof(int));
@@ -112,7 +111,6 @@ int SchedulerEntryPoint(void* arg)
        * The devices are: disk0, disk1, term0, term1, term2, term3.
        * Store the device handle and name in the devices array.
        */
-
 
     init_mailboxes();           // TEST03 ADD
     init_slot_freelist();       // TEST03 ADD
@@ -143,7 +141,6 @@ int SchedulerEntryPoint(void* arg)
 
     return 0;
 } /* SchedulerEntryPoint */
-
 
 /* ------------------------------------------------------------------------
    Name - mailbox_create
@@ -190,7 +187,7 @@ int mailbox_create(int slots, int slot_size)
              * So: we'll add a static array for maxSlots keyed by mailbox id.
              */
             newId = i;
-            g_mbox_maxSlots[i] = slots;     // TEST03 ADD
+            g_mailbox_maxSlots[i] = slots;     // TEST03 ADD
             break;
         }
     }
@@ -232,14 +229,14 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
     }
 
     /* TEST03 ADD enforce capacity */
-    if (g_mbox_maxSlots[mboxId] > 0 && _mailbox->slotCount >= g_mbox_maxSlots[mboxId])
+    if (g_mailbox_maxSlots[mboxId] > 0 && _mailbox->slotCount >= g_mailbox_maxSlots[mboxId])
     {
         /* slots are full */
         enableInterrupts();
         return wait ? -2 : -2;
     }
 
-    SlotPtr _slotptr = alloc_slot();
+    SlotPtr _slotptr = allocate_slot();
     if (_slotptr == NULL)
     {
         enableInterrupts();
@@ -373,10 +370,9 @@ int wait_device(char* deviceName, int* status)
         stop(-1);
     }
 
-    /* spec says return -5 if signaled. */
     if (signaled())
     {
-        result = -5;
+        result = -5;    // Signaled return -5
     }
 
     return result;
@@ -425,7 +421,8 @@ static void init_slot_freelist(void)
     }
 }
 
-static SlotPtr alloc_slot(void)
+// allocate slot
+static SlotPtr allocate_slot(void)
 {
     SlotPtr _slotptr= freeSlotHead;
     if (_slotptr != NULL)
@@ -441,6 +438,7 @@ static SlotPtr alloc_slot(void)
     return _slotptr;
 }
 
+// Free slot in list
 static void free_slot(SlotPtr _slotptr)
 {
     if (!_slotptr) return;
@@ -451,18 +449,19 @@ static void free_slot(SlotPtr _slotptr)
     freeSlotHead = _slotptr;
 }
 
+// Initialize empty mailboxes
 static void init_mailboxes(void)
 {
     for (int i = 0; i < MAXMBOX; i++)
     {
         mailboxes[i].pSlotListHead = NULL;
         mailboxes[i].mbox_id = i;
-        mailboxes[i].type = MB_MAXTYPES;          /* unknown until create */
-        mailboxes[i].status = MBSTATUS_EMPTY;     /* not allocated yet */
+        mailboxes[i].type = MB_MAXTYPES;            // unknown until create 
+        mailboxes[i].status = MBSTATUS_EMPTY;       // Empty Slot
         mailboxes[i].slotSize = 0;
         mailboxes[i].slotCount = 0;
-
-        g_mbox_maxSlots[i] = 0;         // TEST03 ADD: initialize maxSlots array to 0 for all mailboxes
+        
+        g_mailbox_maxSlots[i] = 0;                  // TEST03 ADD: initialize maxSlots array to 0 for all mailboxes
     }
 
 }
