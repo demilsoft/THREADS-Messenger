@@ -1,12 +1,11 @@
-/* ------------------------------------------------------------------------
-   Messaging.c
-   College of Applied Science and Technology
-   The University of Arizona
-   CYBV 489
-
-   Student Names:  <add your group members here>
-
-   ------------------------------------------------------------------------ */
+///////////////////////////////////////////////////////////////////////////
+//   Messaging.c
+//   College of Applied Science and Technology
+//   The University of Arizona
+//   CYBV 489
+//
+//   Student Names:  Dean Lewis
+///////////////////////////////////////////////////////////////////////////
 #include <Windows.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -17,13 +16,12 @@
 #include <stdint.h>
 #include "message.h"
 
-   /* ------------------------- Prototypes ----------------------------------- */
+/* ------------------------- Prototypes ----------------------------------- */
 static void nullsys(system_call_arguments_t* args);
 
 /* Note: interrupt_handler_t is already defined in THREADSLib.h with the signature:
  *   void (*)(char deviceId[32], uint8_t command, uint32_t status, void *pArgs)
  */
-
 static void InitializeHandlers();
 static int check_io_messaging(void);
 extern int MessagingEntryPoint(void*);
@@ -50,15 +48,11 @@ union psr_values {
     unsigned int integer_part;
 };
 
-
 /* -------------------------- Globals ------------------------------------- */
-
 /* Obtained from THREADS*/
 interrupt_handler_t* handlers;
-
 /* system call array of function pointers */
 void (*systemCallVector[THREADS_MAX_SYSCALLS])(system_call_arguments_t* args);
-
 /* the mail boxes */
 MailBox mailboxes[MAXMBOX];
 MailSlot mailSlots[MAXSLOTS];
@@ -75,12 +69,12 @@ static DeviceManagementData devices[THREADS_MAX_DEVICES];
 static int nextMailboxId = 0;
 static int waitingOnDevice = 0;
 
-////// FUNCTION PROTOTYPES //////
-static void init_slot_freelist(void);   // TEST03 ADD
-static SlotPtr alloc_slot(void);        // TEST03 ADD
-static void free_slot(SlotPtr s);       // TEST03 ADD
-static void init_mailboxes(void);        // TEST03 ADD
-/////////////////////////////////
+/////////// FUNCTION PROTOTYPES /////////////////////////
+static void init_slot_freelist(void);       // TEST03 ADD
+static SlotPtr alloc_slot(void);            // TEST03 ADD
+static void free_slot(SlotPtr s);           // TEST03 ADD
+static void init_mailboxes(void);           // TEST03 ADD
+/////////////////////////////////////////////////////////
 
 
 /* ------------------------------------------------------------------------
@@ -91,7 +85,7 @@ static void init_mailboxes(void);        // TEST03 ADD
 ----------------------------------------------------------------------- */
 int SchedulerEntryPoint(void* arg)
 {
-    // TODO: check for kernel mode
+    // TEST03 ADD check for kernel mode
     checkKernelMode("SchedulerEntryPoint");
 
     /* Disable interrupts */
@@ -120,8 +114,8 @@ int SchedulerEntryPoint(void* arg)
        */
 
 
-    init_mailboxes();       // TEST03 ADD
-    init_slot_freelist();   // TEST03 ADD
+    init_mailboxes();           // TEST03 ADD
+    init_slot_freelist();       // TEST03 ADD
 
     InitializeHandlers();
     enableInterrupts();
@@ -170,12 +164,13 @@ int mailbox_create(int slots, int slot_size)
 
     for (int i = 0; i < MAXMBOX; i++)
     {
+        // Reinit empty slots
         if (mailboxes[i].status == MBSTATUS_EMPTY)
         {
             mailboxes[i].pSlotListHead = NULL;
             mailboxes[i].mbox_id = i;
             mailboxes[i].slotSize = slot_size;
-            mailboxes[i].slotCount = 0; /* current messages in queue */
+            mailboxes[i].slotCount = 0;             /* default 0 current messages in queue */
 
             if (slots == 0) mailboxes[i].type = MB_ZEROSLOT;
             else if (slots == 1) mailboxes[i].type = MB_SINGLESLOT;
@@ -195,7 +190,7 @@ int mailbox_create(int slots, int slot_size)
              * So: we'll add a static array for maxSlots keyed by mailbox id.
              */
             newId = i;
-            g_mbox_maxSlots[i] = slots; // TEST03 ADD
+            g_mbox_maxSlots[i] = slots;     // TEST03 ADD
             break;
         }
     }
@@ -203,37 +198,6 @@ int mailbox_create(int slots, int slot_size)
     enableInterrupts();
     return newId;
 }
-//int mailbox_create(int slots, int slot_size)
-//{
-//    int newId = -1;
-//
-//    /* Validate parameters */
-//    if (slots < 0 || slots > MAXSLOTS)
-//        return -1;
-//
-//    if (slot_size <= 0 || slot_size > MAX_MESSAGE)
-//        return -1;
-//
-//    /* Find a free mailbox entry */
-//    disableInterrupts();
-//
-//    for (int i = 0; i < MAXMBOX; i++)
-//    {
-//        if (g_mbox_inuse[i] == 0)
-//        {
-//            g_mbox_inuse[i] = 1;
-//            g_mbox_slots[i] = slots;
-//            g_mbox_slot_size[i] = slot_size;
-//            newId = i;
-//            break;
-//        }
-//    }
-//
-//    enableInterrupts();
-//
-//    return newId;
-//} /* mailbox_create */
-
 
 /* ------------------------------------------------------------------------
    Name - mailbox_send
@@ -247,53 +211,53 @@ int mailbox_create(int slots, int slot_size)
    ----------------------------------------------------------------------- */
 int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 {
-    // TEST03 ADD: Validate parameters and mailbox state.
+    // TEST03 ADD Validate parameters and mailbox state.
     if (mboxId < 0 || mboxId >= MAXMBOX) return -1;
     if (pMsg == NULL) return -1;
     if (msg_size < 0) return -1;
 
     disableInterrupts();
 
-    MailBox* m = &mailboxes[mboxId];
-    if (m->status != MBSTATUS_INUSE)
+    MailBox* _mailbox = &mailboxes[mboxId];
+    if (_mailbox->status != MBSTATUS_INUSE)
     {
         enableInterrupts();
         return -1;
     }
 
-    if (msg_size > m->slotSize || msg_size > MAX_MESSAGE)
+    if (msg_size > _mailbox->slotSize || msg_size > MAX_MESSAGE)
     {
         enableInterrupts();
         return -1;
     }
 
-    /* Test03 uses a slotted mailbox, so enforce capacity */
-    if (g_mbox_maxSlots[mboxId] > 0 && m->slotCount >= g_mbox_maxSlots[mboxId])
+    /* TEST03 ADD enforce capacity */
+    if (g_mbox_maxSlots[mboxId] > 0 && _mailbox->slotCount >= g_mbox_maxSlots[mboxId])
     {
-        /* full */
+        /* slots are full */
         enableInterrupts();
-        return wait ? -2 : -2;  /* later: block if wait==TRUE */
+        return wait ? -2 : -2;
     }
 
-    SlotPtr s = alloc_slot();
-    if (s == NULL)
+    SlotPtr _slotptr = alloc_slot();
+    if (_slotptr == NULL)
     {
         enableInterrupts();
-        return -1; /* out of slots */
+        return -1;          // Out of slots
     }
 
-    s->mbox_id = mboxId;
-    s->messageSize = msg_size;
-    memcpy(s->message, pMsg, (size_t)msg_size);
+    _slotptr->mbox_id = mboxId;
+    _slotptr->messageSize = msg_size;
+    memcpy(_slotptr->message, pMsg, (size_t)msg_size);
 
     /* push onto mailbox slot list head */
-    s->pNextSlot = m->pSlotListHead;
-    s->pPrevSlot = NULL;
-    if (m->pSlotListHead)
-        m->pSlotListHead->pPrevSlot = s;
-    m->pSlotListHead = s;
+    _slotptr->pNextSlot = _mailbox->pSlotListHead;
+    _slotptr->pPrevSlot = NULL;
+    if (_mailbox->pSlotListHead)
+        _mailbox->pSlotListHead->pPrevSlot = _slotptr;
+    _mailbox->pSlotListHead = _slotptr;
 
-    m->slotCount++;
+    _mailbox->slotCount++;
 
     enableInterrupts();
     return 0;
@@ -318,40 +282,42 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
 
     disableInterrupts();
 
-    MailBox* m = &mailboxes[mboxId];
-    if (m->status != MBSTATUS_INUSE)
+    MailBox* _mailbox = &mailboxes[mboxId];
+    if (_mailbox->status != MBSTATUS_INUSE)
     {
         enableInterrupts();
         return -1;
     }
 
-    SlotPtr s = m->pSlotListHead;
-    if (s == NULL)
+    SlotPtr _slotptr = _mailbox->pSlotListHead;
+    if (_slotptr == NULL)
     {
         enableInterrupts();
-        return wait ? -2 : -2; /* later: block if wait==TRUE */
+        return wait ? -2 : -2;
     }
 
-    if (msg_size < s->messageSize)
+    if (msg_size < _slotptr->messageSize)
     {
         enableInterrupts();
-        return -1; /* buffer too small */
+        return -1;          /* buffer too small */
     }
 
-    /* pop from head */
-    m->pSlotListHead = s->pNextSlot;
-    if (m->pSlotListHead)
-        m->pSlotListHead->pPrevSlot = NULL;
+    /* pop from head of list */
+    _mailbox->pSlotListHead = _slotptr->pNextSlot;
+    if (_mailbox->pSlotListHead)
+    {
+        _mailbox->pSlotListHead->pPrevSlot = NULL;
+    }
 
-    m->slotCount--;
+    _mailbox->slotCount--;
 
-    int n = s->messageSize;
-    memcpy(pMsg, s->message, (size_t)n);
+    int _messize = _slotptr->messageSize;
+    memcpy(pMsg, _slotptr->message, (size_t)_messize);
 
-    free_slot(s);
+    free_slot(_slotptr);
 
     enableInterrupts();
-    return n;
+    return _messize;
 }
 
 /* ------------------------------------------------------------------------
@@ -391,7 +357,6 @@ int wait_device(char* deviceName, int* status)
     else
     {
         deviceHandle = device_handle(deviceName);
-
     }
 
     if (deviceHandle >= 0 && deviceHandle < THREADS_MAX_DEVICES)
@@ -399,9 +364,7 @@ int wait_device(char* deviceName, int* status)
         /* set a flag that there is a process waiting on a device. */
         waitingOnDevice++;
         mailbox_receive(devices[deviceHandle].deviceMbox, status, sizeof(int), TRUE);
-
         disableInterrupts();
-
         waitingOnDevice--;
     }
     else
@@ -418,7 +381,6 @@ int wait_device(char* deviceName, int* status)
 
     return result;
 }
-
 
 int check_io_messaging(void)
 {
@@ -441,7 +403,6 @@ static void InitializeHandlers()
      *
      * Also initialize the system call vector (systemCallVector).
      */
-
 }
 
 /* an error method to handle invalid syscalls */
@@ -450,7 +411,6 @@ static void nullsys(system_call_arguments_t* args)
     console_output(FALSE, "nullsys(): Invalid syscall %d. Halting...\n", args->call_id);
     stop(1);
 } /* nullsys */
-
 
 static void init_slot_freelist(void)
 {
@@ -467,28 +427,28 @@ static void init_slot_freelist(void)
 
 static SlotPtr alloc_slot(void)
 {
-    SlotPtr s = freeSlotHead;
-    if (s != NULL)
+    SlotPtr _slotptr= freeSlotHead;
+    if (_slotptr != NULL)
     {
-        freeSlotHead = s->pNextSlot;
+        freeSlotHead = _slotptr->pNextSlot;
         if (freeSlotHead) freeSlotHead->pPrevSlot = NULL;
 
-        s->pNextSlot = NULL;
-        s->pPrevSlot = NULL;
-        s->mbox_id = -1;
-        s->messageSize = 0;
+        _slotptr->pNextSlot = NULL;
+        _slotptr->pPrevSlot = NULL;
+        _slotptr->mbox_id = -1;
+        _slotptr->messageSize = 0;
     }
-    return s;
+    return _slotptr;
 }
 
-static void free_slot(SlotPtr s)
+static void free_slot(SlotPtr _slotptr)
 {
-    if (!s) return;
-    s->pNextSlot = freeSlotHead;
-    s->pPrevSlot = NULL;
-    s->mbox_id = -1;
-    s->messageSize = 0;
-    freeSlotHead = s;
+    if (!_slotptr) return;
+    _slotptr->pNextSlot = freeSlotHead;
+    _slotptr->pPrevSlot = NULL;
+    _slotptr->mbox_id = -1;
+    _slotptr->messageSize = 0;
+    freeSlotHead = _slotptr;
 }
 
 static void init_mailboxes(void)
@@ -502,7 +462,7 @@ static void init_mailboxes(void)
         mailboxes[i].slotSize = 0;
         mailboxes[i].slotCount = 0;
 
-        g_mbox_maxSlots[i] = 0; // TEST03 ADD: initialize maxSlots array to 0 for all mailboxes
+        g_mbox_maxSlots[i] = 0;         // TEST03 ADD: initialize maxSlots array to 0 for all mailboxes
     }
 
 }
