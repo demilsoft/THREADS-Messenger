@@ -1,10 +1,6 @@
 #pragma once
 
- /*
-  * Maximum line length. Used by terminal read and write.
-  */
-#define MAXLINE         80
-
+#define MAXLINE         80   /* 80 Maximum line length. Used by terminal read and write */
 #define MAXMBOX         2000 /* 500 */
 #define MAXSLOTS        2500 /* 5000 */
 #define MAX_MESSAGE     256  /* largest possible message in a single slot */

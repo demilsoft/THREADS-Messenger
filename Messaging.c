@@ -17,7 +17,7 @@
 #include <stdint.h>
 #include "message.h"
 
-/* ------------------------- Prototypes ----------------------------------- */
+   /* ------------------------- Prototypes ----------------------------------- */
 static void nullsys(system_call_arguments_t* args);
 
 /* Note: interrupt_handler_t is already defined in THREADSLib.h with the signature:
@@ -104,20 +104,20 @@ int SchedulerEntryPoint(void* arg)
      * Initialize int_vec and sys_vec, allocate mailboxes for interrupt
      * handlers.  Etc... */
 
-    /* Initialize the devices and their mailboxes. */
-    /* Allocate mailboxes for use by the interrupt handlers.
-     * Note: The clock device uses a zero-slot mailbox, while I/O devices
-     * (disks, terminals) need slotted mailboxes since their interrupt
-     * handlers use non-blocking sends.
-     */
-    // TODO: Create mailboxes for each device.
-    //   devices[THREADS_CLOCK_DEVICE_ID].deviceMbox = mailbox_create(0, sizeof(int));
-    //   devices[i].deviceMbox = mailbox_create(..., sizeof(int));
+     /* Initialize the devices and their mailboxes. */
+     /* Allocate mailboxes for use by the interrupt handlers.
+      * Note: The clock device uses a zero-slot mailbox, while I/O devices
+      * (disks, terminals) need slotted mailboxes since their interrupt
+      * handlers use non-blocking sends.
+      */
+      // TODO: Create mailboxes for each device.
+      //   devices[THREADS_CLOCK_DEVICE_ID].deviceMbox = mailbox_create(0, sizeof(int));
+      //   devices[i].deviceMbox = mailbox_create(..., sizeof(int));
 
-    /* TODO: Initialize the devices using device_initialize().
-     * The devices are: disk0, disk1, term0, term1, term2, term3.
-     * Store the device handle and name in the devices array.
-     */
+      /* TODO: Initialize the devices using device_initialize().
+       * The devices are: disk0, disk1, term0, term1, term2, term3.
+       * Store the device handle and name in the devices array.
+       */
 
 
     init_mailboxes();       // TEST03 ADD
@@ -195,7 +195,7 @@ int mailbox_create(int slots, int slot_size)
              * So: we'll add a static array for maxSlots keyed by mailbox id.
              */
             newId = i;
-			g_mbox_maxSlots[i] = slots; // TEST03 ADD
+            g_mbox_maxSlots[i] = slots; // TEST03 ADD
             break;
         }
     }
@@ -247,7 +247,7 @@ int mailbox_create(int slots, int slot_size)
    ----------------------------------------------------------------------- */
 int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 {
-	// TEST03 ADD: Validate parameters and mailbox state.
+    // TEST03 ADD: Validate parameters and mailbox state.
     if (mboxId < 0 || mboxId >= MAXMBOX) return -1;
     if (pMsg == NULL) return -1;
     if (msg_size < 0) return -1;
@@ -311,7 +311,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
    ----------------------------------------------------------------------- */
 int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
 {
-	// TEST03 ADD: Validate parameters and mailbox state.
+    // TEST03 ADD: Validate parameters and mailbox state.
     if (mboxId < 0 || mboxId >= MAXMBOX) return -1;
     if (pMsg == NULL) return -1;
     if (msg_size < 0) return -1;
@@ -447,7 +447,7 @@ static void InitializeHandlers()
 /* an error method to handle invalid syscalls */
 static void nullsys(system_call_arguments_t* args)
 {
-    console_output(FALSE,"nullsys(): Invalid syscall %d. Halting...\n", args->call_id);
+    console_output(FALSE, "nullsys(): Invalid syscall %d. Halting...\n", args->call_id);
     stop(1);
 } /* nullsys */
 
