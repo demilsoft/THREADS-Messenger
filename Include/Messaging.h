@@ -23,7 +23,7 @@ typedef struct mqattr {
                                    int mqOpen(char *name, int oflags, MqAttributes *pAttrs);
                                 */
 
-/* returns 0 if successful, -1 if invalid arg */
+                                /* returns 0 if successful, -1 if invalid arg */
 extern int mailbox_free(int mbox_id);
 
 /* returns 0 if successful, -1 if invalid args */

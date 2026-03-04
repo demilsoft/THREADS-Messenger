@@ -15,22 +15,11 @@
 #include <stdint.h>
 #include "message.h"
 
-//////////// USER GLOBAL VARIABLES ////////////
-static int g_mailbox_inuse[MAXMBOX];                // 0 = Free, 1 = Used   TEST02 ADD
-static int g_mailbox_slots[MAXMBOX];                // MAX slots requested   TEST02 ADD 
-static int g_mailbox_slot_size[MAXMBOX];            // MAX bytes per message    TEST02 ADD
-static SlotPtr freeSlotHead = NULL;                 // Slot free list management   TEST02 ADD
-static int g_mailbox_maxSlots[MAXMBOX];             // TEST03 ADD
-///////////////////////////////////////////////
-
 /* -------------------------- Globals ------------------------------------- */
-/* Obtained from THREADS*/
-interrupt_handler_t* handlers;
-/* system call array of function pointers */
-void (*systemCallVector[THREADS_MAX_SYSCALLS])(system_call_arguments_t* args);
-/* the mail boxes */
-MailBox mailboxes[MAXMBOX];
-MailSlot mailSlots[MAXSLOTS];
+interrupt_handler_t* handlers;      // Obtained from THREADS
+void (*systemCallVector[THREADS_MAX_SYSCALLS])(system_call_arguments_t* args); // system call array of function pointers 
+MailBox mailboxes[MAXMBOX];         // The mail boxes 
+MailSlot mailSlots[MAXSLOTS];       // The mail slots 
 
 struct psr_bits {
     unsigned int cur_int_enable : 1;
@@ -53,9 +42,36 @@ typedef struct
     char deviceName[16];
 } DeviceManagementData;
 
+// TEST05 ADD Messaging internal state
+typedef struct {
+    int pid;
+    void* recvBuf;
+    int recvMax;
+    int recvResult;
+
+    void* sendBuf;
+    int sendSize;
+    int sendResult;
+} MsgProcEntry;
+
 static DeviceManagementData devices[THREADS_MAX_DEVICES];
 static int nextMailboxId = 0;
 static int waitingOnDevice = 0;
+
+//////////// USER GLOBAL VARIABLES ////////////
+static int g_mailbox_inuse[MAXMBOX];                // 0 = Free, 1 = Used   TEST02 ADD
+static int g_mailbox_slots[MAXMBOX];                // MAX slots requested   TEST02 ADD 
+static int g_mailbox_slot_size[MAXMBOX];            // MAX bytes per message    TEST02 ADD
+static SlotPtr freeSlotHead = NULL;                 // Slot free list management   TEST02 ADD
+static int g_mailbox_maxSlots[MAXMBOX];             // TEST03 ADD
+static MsgProcEntry g_msgProc[MAXPROC];             // TEST05 ADD One waiting node per process
+static WaitingProcess g_waitNode[MAXPROC];          // TEST05 ADD
+static WaitingProcessPtr g_waitRecvHead[MAXMBOX];   // TEST05 ADD mailbox wait queues receiver head
+static WaitingProcessPtr g_waitRecvTail[MAXMBOX];   // TEST05 ADD mailbox wait queues receiver tail
+static WaitingProcessPtr g_waitSendHead[MAXMBOX];   // TEST05 ADD mailbox wait queues sender head
+static WaitingProcessPtr g_waitSendTail[MAXMBOX];   // TEST05 ADD mailbox wait queues sender tail
+static SlotPtr g_slotTail[MAXMBOX];                 // TEST05 ADD mailbox slot tail for FIFO
+///////////////////////////////////////////////
 /* -------------------------- Globals ------------------------------------- */
 
 /* ------------------------- Prototypes ----------------------------------- */
@@ -72,8 +88,16 @@ static void init_slot_freelist(void);       // TEST03 ADD
 static SlotPtr allocate_slot(void);         // TEST03 ADD
 static void free_slot(SlotPtr s);           // TEST03 ADD
 static void init_mailboxes(void);           // TEST03 ADD
+static int mpIndex(int pid);                // TEST05 ADD
+static void waitq_push(WaitingProcessPtr* head, WaitingProcessPtr* tail, WaitingProcessPtr n);       // TEST05 ADD
+static WaitingProcessPtr waitq_pop(WaitingProcessPtr* head, WaitingProcessPtr* tail);                // TEST05 ADD
+static void slot_enqueue(int mboxId, SlotPtr s);                                                     // TEST05 ADD
+static SlotPtr slot_dequeue(int mboxId);                                                             // TEST05 ADD
+static void io_handler(char deviceId[32], uint8_t command, uint32_t status, void* pArgs);            // TEST05 ADD
+static void syscall_handler(char deviceId[32], uint8_t command, uint32_t status, void* pArgs);       // TEST05 ADD
+static int find_device_index_by_name(const char* name);                                              // TEST05 ADD
+static inline int device_id_from_param(char deviceId[32]);                                           // TEST05 FIX ADD
 /////////////////////////////////////////////////////////////////////////
-
 
 /* ------------------------------------------------------------------------
      Name - SchedulerEntryPoint
@@ -103,17 +127,46 @@ int SchedulerEntryPoint(void* arg)
       * handlers use non-blocking sends.
       */
 
-      // TODO: Create mailboxes for each device.
-      //   devices[THREADS_CLOCK_DEVICE_ID].deviceMbox = mailbox_create(0, sizeof(int));
-      //   devices[i].deviceMbox = mailbox_create(..., sizeof(int));
-
-      /* TODO: Initialize the devices using device_initialize().
-       * The devices are: disk0, disk1, term0, term1, term2, term3.
-       * Store the device handle and name in the devices array.
-       */
-
+      // TEST03 ADD: init mailbox/slot structures first so mailbox_create works cleanly.
     init_mailboxes();           // TEST03 ADD
     init_slot_freelist();       // TEST03 ADD
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    /* TODO: Initialize the devices using device_initialize().
+     * The devices are: disk0, disk1, term0, term1, term2, term3.
+     * Store the device handle and name in the devices array.
+     */
+
+     // Create device mailboxes
+     // TODO: Create mailboxes for each device.
+     //   devices[THREADS_CLOCK_DEVICE_ID].deviceMbox = mailbox_create(0, sizeof(int));      // TEST05 ADD
+    devices[THREADS_CLOCK_DEVICE_ID].deviceMbox = mailbox_create(0, sizeof(int)); /* clock: zero-slot */
+
+    // IO devices: slotted mailbox; handler uses non-blocking sends
+    //   devices[i].deviceMbox = mailbox_create(..., sizeof(int));            // TEST05 ADD
+
+    // IMPORTANT (TEST05 FIX):
+    // device_handle("term0") may be invalid until AFTER device_initialize("term0").
+    // So initialize first, then use the returned handle/index to assign deviceMbox/deviceName.
+    int term0Handle = device_initialize("term0");                                // TEST05 ADD
+    if (term0Handle < 0 || term0Handle >= THREADS_MAX_DEVICES)                  // TEST05 ADD
+    {
+        console_output(FALSE, "SchedulerEntryPoint: device_initialize(term0) failed (%d)\n", term0Handle);
+        stop(1);
+    }
+
+    devices[term0Handle].deviceHandle = (void*)(uintptr_t)term0Handle;          // TEST05 ADD
+    devices[term0Handle].deviceMbox = mailbox_create(10, sizeof(int));          // TEST05 ADD
+    strncpy(devices[term0Handle].deviceName, "term0", sizeof(devices[0].deviceName) - 1);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+
+    for (int i = 0; i < MAXPROC; i++) {         // TEST05 ADD initialize proc table
+        g_msgProc[i].pid = -1;
+        g_waitNode[i].pid = -1;
+        g_waitNode[i].pNextProcess = NULL;
+        g_waitNode[i].pPrevProcess = NULL;
+    }
 
     InitializeHandlers();
     enableInterrupts();
@@ -208,53 +261,93 @@ int mailbox_create(int slots, int slot_size)
    ----------------------------------------------------------------------- */
 int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 {
-    // TEST03 ADD Validate parameters and mailbox state.
+    checkKernelMode("mailbox_send");
+
     if (mboxId < 0 || mboxId >= MAXMBOX) return -1;
     if (pMsg == NULL) return -1;
     if (msg_size < 0) return -1;
 
     disableInterrupts();
 
-    MailBox* _mailbox = &mailboxes[mboxId];
-    if (_mailbox->status != MBSTATUS_INUSE)
-    {
+    MailBox* m = &mailboxes[mboxId];
+    if (m->status != MBSTATUS_INUSE) {
+        enableInterrupts();
+        return -1;
+    }
+    if (msg_size > m->slotSize || msg_size > MAX_MESSAGE) {
         enableInterrupts();
         return -1;
     }
 
-    if (msg_size > _mailbox->slotSize || msg_size > MAX_MESSAGE)
-    {
+    /* If a receiver is waiting, deliver directly to its buffer and unblock it */
+    WaitingProcessPtr rnode = waitq_pop(&g_waitRecvHead[mboxId], &g_waitRecvTail[mboxId]);
+    if (rnode) {
+        int rpid = rnode->pid;
+        int ridx = mpIndex(rpid);
+
+        if (g_msgProc[ridx].pid == rpid && g_msgProc[ridx].recvBuf && g_msgProc[ridx].recvMax >= msg_size) {
+            memcpy(g_msgProc[ridx].recvBuf, pMsg, (size_t)msg_size);
+            g_msgProc[ridx].recvResult = msg_size;
+        }
+        else {
+            /* Receiver buffer invalid/too small: fail it */
+            g_msgProc[ridx].recvResult = -1;
+        }
+
+        /* Unblock receiver AFTER data is in place */
+        unblock(rpid);
+
+        enableInterrupts();
+        return 0;
+    }
+
+    /* No waiting receiver: normal slotted mailbox enqueue */
+    if (g_mailbox_maxSlots[mboxId] > 0 && m->slotCount >= g_mailbox_maxSlots[mboxId]) {
+        if (!wait) {
+            enableInterrupts();
+            return -2;
+        }
+
+        /* Blocking sender: enqueue sender and sleep */
+        int pid = k_getpid();
+        int idx = mpIndex(pid);
+
+        g_msgProc[idx].pid = pid;
+        g_msgProc[idx].sendBuf = pMsg;
+        g_msgProc[idx].sendSize = msg_size;
+        g_msgProc[idx].sendResult = -9999;
+
+        WaitingProcessPtr snode = &g_waitNode[idx];
+        snode->pid = pid;
+        snode->pNextProcess = snode->pPrevProcess = NULL;
+        waitq_push(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId], snode);
+
+        block(BLOCKED_SEND);
+
+        /* When we return, interrupts may be enabled */
+        disableInterrupts();
+
+        if (m->status != MBSTATUS_INUSE) { enableInterrupts(); return -1; }
+        if (signaled()) { enableInterrupts(); return -5; }
+
+        /* Receiver should have delivered our message and set sendResult */
+        int sr = g_msgProc[idx].sendResult;
+        enableInterrupts();
+        return (sr == -9999) ? 0 : sr;   /* default success if not set */
+    }
+
+    SlotPtr s = allocate_slot();
+    if (!s) {
         enableInterrupts();
         return -1;
     }
 
-    /* TEST03 ADD enforce capacity */
-    if (g_mailbox_maxSlots[mboxId] > 0 && _mailbox->slotCount >= g_mailbox_maxSlots[mboxId])
-    {
-        /* slots are full */
-        enableInterrupts();
-        return wait ? -2 : -2;
-    }
+    s->mbox_id = mboxId;
+    s->messageSize = msg_size;
+    memcpy(s->message, pMsg, (size_t)msg_size);
 
-    SlotPtr _slotptr = allocate_slot();
-    if (_slotptr == NULL)
-    {
-        enableInterrupts();
-        return -1;          // Out of slots
-    }
-
-    _slotptr->mbox_id = mboxId;
-    _slotptr->messageSize = msg_size;
-    memcpy(_slotptr->message, pMsg, (size_t)msg_size);
-
-    /* push onto mailbox slot list head */
-    _slotptr->pNextSlot = _mailbox->pSlotListHead;
-    _slotptr->pPrevSlot = NULL;
-    if (_mailbox->pSlotListHead)
-        _mailbox->pSlotListHead->pPrevSlot = _slotptr;
-    _mailbox->pSlotListHead = _slotptr;
-
-    _mailbox->slotCount++;
+    slot_enqueue(mboxId, s);
+    m->slotCount++;
 
     enableInterrupts();
     return 0;
@@ -272,49 +365,126 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
    ----------------------------------------------------------------------- */
 int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
 {
-    // TEST03 ADD: Validate parameters and mailbox state.
+    checkKernelMode("mailbox_receive");
+
     if (mboxId < 0 || mboxId >= MAXMBOX) return -1;
     if (pMsg == NULL) return -1;
     if (msg_size < 0) return -1;
 
     disableInterrupts();
 
-    MailBox* _mailbox = &mailboxes[mboxId];
-    if (_mailbox->status != MBSTATUS_INUSE)
-    {
+    MailBox* m = &mailboxes[mboxId];
+    if (m->status != MBSTATUS_INUSE) {
         enableInterrupts();
         return -1;
     }
 
-    SlotPtr _slotptr = _mailbox->pSlotListHead;
-    if (_slotptr == NULL)
-    {
+    /* If a message is already queued, take it FIFO */
+    SlotPtr s = slot_dequeue(mboxId);
+    if (s) {
+        if (msg_size < s->messageSize) {
+            /* Put it back at head (simple) */
+            s->pNextSlot = m->pSlotListHead;
+            if (m->pSlotListHead) m->pSlotListHead->pPrevSlot = s;
+            m->pSlotListHead = s;
+            if (!g_slotTail[mboxId]) g_slotTail[mboxId] = s;
+
+            enableInterrupts();
+            return -1;
+        }
+
+        int n = s->messageSize;
+        memcpy(pMsg, s->message, (size_t)n);
+        m->slotCount--;
+        free_slot(s);
+
+        // TEST06 ADD  If a sender is blocked because the mailbox was full, we just freed a slot.
+        // Wake ONE blocked sender and deliver its pending message into the mailbox.
+        WaitingProcessPtr snode = waitq_pop(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId]);
+        if (snode)
+        {
+            int spid = snode->pid;
+            int sidx = mpIndex(spid);
+
+            /* If the mailbox is still valid, place the sender's message into a new slot */
+            if (m->status == MBSTATUS_INUSE &&
+                (g_mailbox_maxSlots[mboxId] == 0 || m->slotCount < g_mailbox_maxSlots[mboxId]))
+            {
+                SlotPtr ns = allocate_slot();
+                if (ns != NULL)
+                {
+                    int ssize = g_msgProc[sidx].sendSize;
+                    void* sbuf = g_msgProc[sidx].sendBuf;
+
+                    ns->mbox_id = mboxId;
+                    ns->messageSize = ssize;
+                    memcpy(ns->message, sbuf, (size_t)ssize);
+
+                    /* Enqueue at tail (FIFO) */
+                    slot_enqueue(mboxId, ns);
+                    m->slotCount++;
+
+                    g_msgProc[sidx].sendResult = 0;    /* sender's mailbox_send returns success */
+                }
+                else
+                {
+                    /* Should be rare (we just freed one), but be safe */
+                    g_msgProc[sidx].sendResult = -1;
+                }
+            }
+            else
+            {
+                g_msgProc[sidx].sendResult = -1;
+            }
+
+            /* Unblock the sender AFTER its message has been queued */
+            unblock(spid);
+        }
+
         enableInterrupts();
-        return wait ? -2 : -2;
+        return n;
     }
 
-    if (msg_size < _slotptr->messageSize)
-    {
+    /* No queued mail: if non-blocking, would-block */
+    if (!wait) {
         enableInterrupts();
-        return -1;          /* buffer too small */
+        return -2;
     }
 
-    /* pop from head of list */
-    _mailbox->pSlotListHead = _slotptr->pNextSlot;
-    if (_mailbox->pSlotListHead)
-    {
-        _mailbox->pSlotListHead->pPrevSlot = NULL;
+    /* Blocking: put this process on the receive wait queue */
+    int pid = k_getpid();
+    int idx = mpIndex(pid);
+
+    g_msgProc[idx].pid = pid;
+    g_msgProc[idx].recvBuf = pMsg;
+    g_msgProc[idx].recvMax = msg_size;
+    g_msgProc[idx].recvResult = -9999;
+
+    WaitingProcessPtr node = &g_waitNode[idx];
+    node->pid = pid;
+    node->pNextProcess = node->pPrevProcess = NULL;
+    waitq_push(&g_waitRecvHead[mboxId], &g_waitRecvTail[mboxId], node);
+
+    /* block() may re-enable interrupts internally */
+    int br = block(BLOCKED_RECEIVE);
+
+    /* When we return, re-enter with interrupts off for safety */
+    disableInterrupts();
+
+    /* If the mailbox got released while waiting, treat as invalid */
+    if (m->status != MBSTATUS_INUSE) {
+        enableInterrupts();
+        return -1;
     }
 
-    _mailbox->slotCount--;
+    if (signaled()) {
+        enableInterrupts();
+        return -5;
+    }
 
-    int _messize = _slotptr->messageSize;
-    memcpy(pMsg, _slotptr->message, (size_t)_messize);
-
-    free_slot(_slotptr);
-
+    int result = g_msgProc[idx].recvResult;
     enableInterrupts();
-    return _messize;
+    return result;
 }
 
 /* ------------------------------------------------------------------------
@@ -342,9 +512,10 @@ int mailbox_free(int mboxId)
 int wait_device(char* deviceName, int* status)
 {
     int result = 0;
-    uint32_t deviceHandle = -1;
+    int deviceHandle = -1;              // Use int for consistency with device APIs
     checkKernelMode("waitdevice");
 
+    /* Allow interrupts while waiting for device interrupt */
     enableInterrupts();
 
     if (strcmp(deviceName, "clock") == 0)
@@ -354,13 +525,36 @@ int wait_device(char* deviceName, int* status)
     else
     {
         deviceHandle = device_handle(deviceName);
+
+        /* TEST05 ADD:
+         * Ensure the device was properly initialized and handle is valid.
+         */
+        if (deviceHandle < 0 || deviceHandle >= THREADS_MAX_DEVICES)
+        {
+            console_output(FALSE, "wait_device: Unknown or uninitialized device %s.\n", deviceName);
+            stop(-1);
+        }
     }
 
     if (deviceHandle >= 0 && deviceHandle < THREADS_MAX_DEVICES)
     {
         /* set a flag that there is a process waiting on a device. */
         waitingOnDevice++;
-        mailbox_receive(devices[deviceHandle].deviceMbox, status, sizeof(int), TRUE);
+
+        /* TEST05 ADD - Adding check for possible failure */
+        int mail_status = mailbox_receive(
+            devices[deviceHandle].deviceMbox,
+            status,
+            sizeof(int),
+            TRUE /* blocking */
+        );
+
+        if (mail_status < 0)
+        {
+            result = mail_status;   // Propagate mailbox failure
+        }
+
+        /* Re-disable interrupts after returning from block */
         disableInterrupts();
         waitingOnDevice--;
     }
@@ -370,6 +564,7 @@ int wait_device(char* deviceName, int* status)
         stop(-1);
     }
 
+    /* If process was signaled while waiting, return -5 */
     if (signaled())
     {
         result = -5;    // Signaled return -5
@@ -391,14 +586,20 @@ static void InitializeHandlers()
 {
     handlers = get_interrupt_handlers();
 
+    // Also initialize the system call vector(systemCallVector).* /
+    // Using syscall with nullsys by default                    // TEST05 ADD
+    for (int i = 0; i < THREADS_MAX_SYSCALLS; i++)
+    {
+        systemCallVector[i] = nullsys;
+    }
+
     /* TODO: Register interrupt handlers in the handlers array.
      * Use the interrupt indices defined in THREADSLib.h:
      *   handlers[THREADS_TIMER_INTERRUPT]   = your_clock_handler;
      *   handlers[THREADS_IO_INTERRUPT]      = your_io_handler;
-     *   handlers[THREADS_SYS_CALL_INTERRUPT] = your_syscall_handler;
-     *
-     * Also initialize the system call vector (systemCallVector).
-     */
+     *   handlers[THREADS_SYS_CALL_INTERRUPT] = your_syscall_handler;*/
+    handlers[THREADS_IO_INTERRUPT] = io_handler;                            // TEST05 ADD
+    handlers[THREADS_SYS_CALL_INTERRUPT] = syscall_handler;                 // TEST05 ADD
 }
 
 /* an error method to handle invalid syscalls */
@@ -424,7 +625,7 @@ static void init_slot_freelist(void)
 // allocate slot
 static SlotPtr allocate_slot(void)
 {
-    SlotPtr _slotptr= freeSlotHead;
+    SlotPtr _slotptr = freeSlotHead;
     if (_slotptr != NULL)
     {
         freeSlotHead = _slotptr->pNextSlot;
@@ -460,10 +661,114 @@ static void init_mailboxes(void)
         mailboxes[i].status = MBSTATUS_EMPTY;       // Empty Slot
         mailboxes[i].slotSize = 0;
         mailboxes[i].slotCount = 0;
-        
+
         g_mailbox_maxSlots[i] = 0;                  // TEST03 ADD: initialize maxSlots array to 0 for all mailboxes
+
+        g_slotTail[i] = NULL;                       // TEST05 ADD initialize slot, send, receive head and tails
+        g_waitRecvHead[i] = NULL;
+        g_waitRecvTail[i] = NULL;
+        g_waitSendHead[i] = NULL;
+        g_waitSendTail[i] = NULL;
     }
 
+}
+
+static void waitq_push(WaitingProcessPtr* head, WaitingProcessPtr* tail, WaitingProcessPtr n) {
+    n->pNextProcess = NULL;
+    n->pPrevProcess = *tail;
+    if (*tail) (*tail)->pNextProcess = n;
+    else *head = n;
+    *tail = n;
+}
+
+static WaitingProcessPtr waitq_pop(WaitingProcessPtr* head, WaitingProcessPtr* tail) {
+    WaitingProcessPtr n = *head;
+    if (!n) return NULL;
+    *head = n->pNextProcess;
+    if (*head) (*head)->pPrevProcess = NULL;
+    else *tail = NULL;
+    n->pNextProcess = n->pPrevProcess = NULL;
+    return n;
+}
+
+static void slot_enqueue(int mboxId, SlotPtr s) {
+    MailBox* m = &mailboxes[mboxId];
+    s->pNextSlot = NULL;
+    s->pPrevSlot = g_slotTail[mboxId];
+    if (g_slotTail[mboxId]) g_slotTail[mboxId]->pNextSlot = s;
+    else m->pSlotListHead = s;
+    g_slotTail[mboxId] = s;
+}
+
+static SlotPtr slot_dequeue(int mboxId) {
+    MailBox* m = &mailboxes[mboxId];
+    SlotPtr s = m->pSlotListHead;
+    if (!s) return NULL;
+    m->pSlotListHead = s->pNextSlot;
+    if (m->pSlotListHead) m->pSlotListHead->pPrevSlot = NULL;
+    else g_slotTail[mboxId] = NULL;
+    s->pNextSlot = s->pPrevSlot = NULL;
+    return s;
+}
+
+static void io_handler(char deviceId[32], uint8_t command, uint32_t status, void* pArgs)
+{
+    (void)command;
+    (void)pArgs;
+
+    int idx = device_id_from_param(deviceId);
+    if (idx < 0 || idx >= THREADS_MAX_DEVICES)
+    {
+        return;
+    }
+
+    int st = (int)status;
+
+    /* Interrupt context: must be non-blocking */
+    mailbox_send(devices[idx].deviceMbox, &st, sizeof(int), FALSE);
+}
+
+static void syscall_handler(char deviceId[32], uint8_t command, uint32_t status, void* pArgs)
+{
+    (void)deviceId; (void)command; (void)status;
+    system_call_arguments_t* args = (system_call_arguments_t*)pArgs;
+    if (args->call_id < 0 || args->call_id >= THREADS_MAX_SYSCALLS) {
+        nullsys(args);
+        return;
+    }
+    systemCallVector[args->call_id](args);
+}
+
+// TEST05 ADD - sure up device io_handler...Search by name
+static int find_device_index_by_name(const char* name)
+{
+    for (int i = 0; i < THREADS_MAX_DEVICES; i++) {
+        if (devices[i].deviceName[0] != '\0' && strcmp(devices[i].deviceName, name) == 0)
+            return i;
+    }
+    return -1;
+}
+
+// Handle pointer values as numeric     // TEST05 ADD - Fix exception in io_handler
+static inline int device_id_from_param(char deviceId[32])
+{
+    uintptr_t raw = (uintptr_t)deviceId;
+
+    // Low pointers are invalid
+    if (raw < 4096) {
+        return (int)raw;
+    }
+
+    // Otherise use string name
+    if (deviceId == NULL) return -1;
+    if (strcmp(deviceId, "clock") == 0) return THREADS_CLOCK_DEVICE_ID;
+
+    return device_handle((char*)deviceId);
+}
+
+static int mpIndex(int pid)
+{
+    return pid % MAXPROC;
 }
 
 /*****************************************************************************
