@@ -306,7 +306,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
     checkKernelMode("mailbox_send");
 
     if (mboxId < 0 || mboxId >= MAXMBOX) return -1;
-	if (msg_size < 0) return -1;                        // TEST 11 ALTER Remove reject NULL, 0 -Byte messages; allow them as valid
+    if (msg_size < 0) return -1;                        // TEST 11 ALTER Remove reject NULL, 0 -Byte messages; allow them as valid
     if (msg_size > 0 && pMsg == NULL) return -1;
 
     disableInterrupts();
@@ -328,7 +328,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
         int rpid = rnode->pid;
         MsgProcEntry* _msgProc = mp_for_pid(rpid);
 
-		if (_msgProc && _msgProc->recvMax >= msg_size)                  // TEST 11 ALTER Allow recvBuf of smaller msg than requested
+        if (_msgProc && _msgProc->recvMax >= msg_size)                  // TEST 11 ALTER deliver only if receiver buffer is large enough
         {
             if (msg_size > 0)
                 memcpy(_msgProc->recvBuf, pMsg, (size_t)msg_size);
@@ -381,19 +381,6 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 
         if (signaled())
         {
-            if (me->blockedMbox >= 0 &&
-                me->blockedMbox < MAXMBOX &&
-                mailboxes[me->blockedMbox].status == MBSTATUS_RELEASED)
-            {
-                g_releaseWaitCount[me->blockedMbox]--;
-                if (g_releaseWaitCount[me->blockedMbox] == 0 &&
-                    g_releaseFreerPid[me->blockedMbox] >= 0)
-                {
-                    unblock(g_releaseFreerPid[me->blockedMbox]);
-                    g_releaseFreerPid[me->blockedMbox] = -1;
-                }
-            }
-
             me->blockedMbox = -1;
             me->blockedType = 0;
 
@@ -458,19 +445,6 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 
         if (signaled())
         {
-            if (me->blockedMbox >= 0 &&
-                me->blockedMbox < MAXMBOX &&
-                mailboxes[me->blockedMbox].status == MBSTATUS_RELEASED)
-            {
-                g_releaseWaitCount[me->blockedMbox]--;
-                if (g_releaseWaitCount[me->blockedMbox] == 0 &&
-                    g_releaseFreerPid[me->blockedMbox] >= 0)
-                {
-                    unblock(g_releaseFreerPid[me->blockedMbox]);
-                    g_releaseFreerPid[me->blockedMbox] = -1;
-                }
-            }
-
             me->blockedMbox = -1;
             me->blockedType = 0;
 
@@ -500,7 +474,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 
     /* Space available in slotted mailbox: queue message */
     {
-		SlotPtr s = allocate_slot();                            // TEST 16 ALTER Allocate slot here instead of before block to avoid holding up a slot while blocked if mailbox is full. (Also avoids unnecessary allocation if non-blocking.)
+        SlotPtr s = allocate_slot();                            // TEST 16 ALTER Allocate slot here instead of before block to avoid holding up a slot while blocked if mailbox is full. (Also avoids unnecessary allocation if non-blocking.)
         if (!s) {
             enableInterrupts();
             console_output(FALSE, "No mail slots available.\n");
@@ -511,8 +485,8 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
         s->messageSize = msg_size;
         if (msg_size > 0)
         {
-			memcpy(s->message, pMsg, (size_t)msg_size);             // TEST 11 ALTER Conditional copy to avoid invalid memcpy if msg_size is 0 (null pointer not allowed even if size is 0)
-        } 
+            memcpy(s->message, pMsg, (size_t)msg_size);             // TEST 11 ALTER Conditional copy to avoid invalid memcpy if msg_size is 0 (null pointer not allowed even if size is 0)
+        }
 
         slot_enqueue(mboxId, s);
         m->slotCount++;
@@ -573,7 +547,7 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
             int n = s->messageSize;
             if (n > 0)
             {
-				memcpy(pMsg, s->message, (size_t)n);        // TEST 11 ALTER Conditional copy to avoid invalid memcpy if msg_size is 0 (null pointer not allowed even if size is 0)
+                memcpy(pMsg, s->message, (size_t)n);        // TEST 11 ALTER Conditional copy to avoid invalid memcpy if msg_size is 0 (null pointer not allowed even if size is 0)
             }
             m->slotCount--;
             free_slot(s);
@@ -606,7 +580,7 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
                         else
                         {
                             enableInterrupts();
-							console_output(FALSE, "No mail slots available.\n");            // TEST 16 ALTER If we fail to allocate a slot for the sender, we have to unblock them with an error instead of leaving them blocked forever. (Also avoids unnecessary allocation if non-blocking.)
+                            console_output(FALSE, "No mail slots available.\n");            // TEST 16 ALTER If we fail to allocate a slot for the sender, we have to unblock them with an error instead of leaving them blocked forever. (Also avoids unnecessary allocation if non-blocking.)
                             stop(1);
                         }
                     }
@@ -625,6 +599,7 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
     }
 
     /* Zero-slot mailbox: if a sender is already waiting, take directly from sender */
+	// TEST29 ALTER zero-slot path before blocking to preserve rendezvous behavior for zero-slot mailboxes (instead of blocking sender and waiting for receiver to arrive, which would deadlock since receiver is what we're trying to unblock in the first place).
     if (g_mailbox_maxSlots[mboxId] == 0)
     {
         WaitingProcessPtr snode = waitq_pop(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId]);
@@ -633,7 +608,7 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
             int spid = snode->pid;
             MsgProcEntry* se = mp_for_pid(spid);
 
-            if (!se || !se->sendBuf || se->sendSize < 0 || msg_size < se->sendSize)
+            if (!se || se->sendSize < 0 || msg_size < se->sendSize)
             {
                 if (se)
                     se->sendResult = -1;
@@ -643,7 +618,11 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
                 return -1;
             }
 
-            memcpy(pMsg, se->sendBuf, (size_t)se->sendSize);
+            if (se->sendSize > 0)
+            {
+                memcpy(pMsg, se->sendBuf, (size_t)se->sendSize);
+            }
+
             se->sendResult = 0;
             unblock(spid);
 
@@ -688,19 +667,6 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
 
         if (signaled())
         {
-            if (me->blockedMbox >= 0 &&
-                me->blockedMbox < MAXMBOX &&
-                mailboxes[me->blockedMbox].status == MBSTATUS_RELEASED)
-            {
-                g_releaseWaitCount[me->blockedMbox]--;
-                if (g_releaseWaitCount[me->blockedMbox] == 0 &&
-                    g_releaseFreerPid[me->blockedMbox] >= 0)
-                {
-                    unblock(g_releaseFreerPid[me->blockedMbox]);
-                    g_releaseFreerPid[me->blockedMbox] = -1;
-                }
-            }
-
             me->blockedMbox = -1;
             me->blockedType = 0;
 
@@ -773,7 +739,6 @@ int mailbox_free(int mboxId)
 
     /* Wake all blocked receivers and senders */
     {
-        int awakened = 0;
         WaitingProcessPtr node;
 
         while ((node = waitq_pop(&g_waitRecvHead[mboxId], &g_waitRecvTail[mboxId])) != NULL)
@@ -789,7 +754,6 @@ int mailbox_free(int mboxId)
 
             k_kill(pid, SIG_TERM);
             unblock(pid);
-            awakened++;
         }
 
         while ((node = waitq_pop(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId])) != NULL)
@@ -805,16 +769,6 @@ int mailbox_free(int mboxId)
 
             k_kill(pid, SIG_TERM);
             unblock(pid);
-            awakened++;
-        }
-
-        if (awakened > 0)
-        {
-            g_releaseWaitCount[mboxId] = awakened;
-            g_releaseFreerPid[mboxId] = k_getpid();
-
-            block(BLOCKED_RELEASE);
-            disableInterrupts();
         }
     }
 
