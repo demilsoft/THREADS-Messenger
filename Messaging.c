@@ -1200,6 +1200,7 @@ static WaitingProcessPtr wp_for_pid(int pid)
     return &g_waitNode[idx];
 }
 
+
 /*****************************************************************************
    Name - checkKernelMode
    Purpose - Checks the PSR for kernel mode and halts if in user mode
