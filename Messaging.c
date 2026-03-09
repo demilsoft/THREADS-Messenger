@@ -500,11 +500,11 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 
     /* Space available in slotted mailbox: queue message */
     {
-        SlotPtr s = allocate_slot();
-        if (!s)
-        {
+		SlotPtr s = allocate_slot();                            // TEST 16 ALTER Allocate slot here instead of before block to avoid holding up a slot while blocked if mailbox is full. (Also avoids unnecessary allocation if non-blocking.)
+        if (!s) {
             enableInterrupts();
-            return -1;
+            console_output(FALSE, "No mail slots available.\n");
+            stop(1);
         }
 
         s->mbox_id = mboxId;
@@ -605,7 +605,9 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
                         }
                         else
                         {
-                            se->sendResult = -1;
+                            enableInterrupts();
+							console_output(FALSE, "No mail slots available.\n");            // TEST 16 ALTER If we fail to allocate a slot for the sender, we have to unblock them with an error instead of leaving them blocked forever. (Also avoids unnecessary allocation if non-blocking.)
+                            stop(1);
                         }
                     }
                     else if (se)
