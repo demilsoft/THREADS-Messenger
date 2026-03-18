@@ -16,7 +16,7 @@
 #include "message.h"
 #include "MessagingHelpers.h"
 
-/* -------------------------- Globals ------------------------------------- */
+/////////////////////////////////////// GLOBALS ///////////////////////////////////////
 interrupt_handler_t* handlers;                  // From THREADs, interrupt handler array of function pointers
 void (*systemCallVector[THREADS_MAX_SYSCALLS])(system_call_arguments_t* args); // system call array of function pointers
 MailBox mailboxes[MAXMBOX];                     // Mail boxes
@@ -45,9 +45,9 @@ typedef struct
 
 static DeviceManagementData devices[THREADS_MAX_DEVICES];
 static int waitingOnDevice = 0;
-/* -------------------------- Globals ------------------------------------- */
+/////////////////////////////////////// GLOBALS ///////////////////////////////////////
 
-/* ------------------------- Prototypes ----------------------------------- */
+////////////////////////////////////// PROTOTYPES /////////////////////////////////////
 static void nullsys(system_call_arguments_t* args);
 /* Note: interrupt_handler_t is already defined in THREADSLib.h with the signature:
  * void (*)(char deviceId[32], uint8_t command, uint32_t status, void *pArgs) */
@@ -59,8 +59,9 @@ static void init_devices(void);
 static void io_handler(char deviceId[32], uint8_t command, uint32_t status, void* pArgs);               // TEST05 ADD
 static void syscall_handler(char deviceId[32], uint8_t command, uint32_t status, void* pArgs);          // TEST05 ADD
 static void clock_handler_messaging(char deviceId[32], uint8_t command, uint32_t status, void* pArgs);  // TEST08 ADD
-/* ------------------------- Prototypes ----------------------------------- */
+////////////////////////////////////// PROTOTYPES /////////////////////////////////////
 
+// SCHEDULER ENTRY POINT //
 int SchedulerEntryPoint(void* arg)
 {
     (void)arg;

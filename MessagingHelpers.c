@@ -16,7 +16,7 @@
 #include "message.h"
 #include "MessagingHelpers.h"
 
-//////////// USER GLOBAL VARIABLES ////////////
+/////////////////////////////////////// GLOBALS ///////////////////////////////////////
 SlotPtr freeSlotHead = NULL;                 // Slot free list management   TEST02 ADD
 int g_mailbox_maxSlots[MAXMBOX];             // TEST03 ADD
 MsgProcEntry g_msgProc[MAXPROC];             // TEST05 ADD One waiting node per process
@@ -26,13 +26,12 @@ WaitingProcessPtr g_waitRecvTail[MAXMBOX];   // TEST05 ADD mailbox wait queues r
 WaitingProcessPtr g_waitSendHead[MAXMBOX];   // TEST05 ADD mailbox wait queues sender head
 WaitingProcessPtr g_waitSendTail[MAXMBOX];   // TEST05 ADD mailbox wait queues sender tail
 SlotPtr g_slotTail[MAXMBOX];                 // TEST05 ADD mailbox slot tail for FIFO
-///////////////////////////////////////////////
-
-static int mpIndex(int pid);                // TEST05 ADD
+static int mpIndex(int pid);                 // TEST05 ADD
+/////////////////////////////////////// GLOBALS ///////////////////////////////////////
 
 static int mpIndex(int pid)
 {
-    // TEST09 ADD DO NOT use pid % MAXPROC (pid collisions kill the wrong process)
+    // TEST09 FIX REMOVE pid % MAXPROC - COLLISIONS
     // If PID already has a slot, return it
     for (int i = 0; i < MAXPROC; i++)
     {
@@ -91,7 +90,7 @@ void init_proc_table(void)
     }
 }
 
-// An error method to handle slot free list setup 
+// Error handler slot free list setup 
 void init_slot_freelist(void)
 {
     freeSlotHead = NULL;
@@ -131,7 +130,7 @@ void free_slot(SlotPtr _slotptr)
     _slotptr->pNextSlot = freeSlotHead;
     _slotptr->pPrevSlot = NULL;
 
-    // Maintain backward link on old head
+    // Fix maintain link on old head
     if (freeSlotHead)
     {
         freeSlotHead->pPrevSlot = _slotptr;
@@ -155,7 +154,7 @@ void init_mailboxes(void)
         mailboxes[i].slotSize = 0;
         mailboxes[i].slotCount = 0;
 
-        g_mailbox_maxSlots[i] = 0;                  // TEST03 ADD: initialize maxSlots array to 0 for all mailboxes
+        g_mailbox_maxSlots[i] = 0;                  // TEST03 ADD initialize maxSlots array to 0 for all mailboxes
 
         g_slotTail[i] = NULL;                       // TEST05 ADD initialize slot, send, receive head and tails
         g_waitRecvHead[i] = NULL;
