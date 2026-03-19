@@ -11,7 +11,7 @@
 #include <string.h>
 #include <THREADSLib.h>
 #include <Scheduler.h>
-#include <Messaging.h>
+#include "Messaging.h"
 #include <stdint.h>
 #include "message.h"
 #include "MessagingHelpers.h"
@@ -27,6 +27,8 @@ WaitingProcessPtr g_waitSendHead[MAXMBOX];   // TEST05 ADD mailbox wait queues s
 WaitingProcessPtr g_waitSendTail[MAXMBOX];   // TEST05 ADD mailbox wait queues sender tail
 SlotPtr g_slotTail[MAXMBOX];                 // TEST05 ADD mailbox slot tail for FIFO
 static int mpIndex(int pid);                 // TEST05 ADD
+int g_releaseWaitCount[MAXMBOX];             // TEST17 ADD how many awakened waiters still need to finish
+int g_releaseFreerPid[MAXMBOX];              // TEST17 ADD pid of process inside mailbox_free waiting to resume
 /////////////////////////////////////// GLOBALS ///////////////////////////////////////
 
 static int mpIndex(int pid)
@@ -55,6 +57,7 @@ static int mpIndex(int pid)
             g_msgProc[i].sendSize = 0;
             g_msgProc[i].sendResult = -9999;
 
+            // Clear mailbox wait state
             g_msgProc[i].blockedMbox = -1;
             g_msgProc[i].blockedType = 0;
 
@@ -67,6 +70,7 @@ static int mpIndex(int pid)
         }
     }
 
+    // No free process table slot
     return -1;
 }
 
@@ -74,6 +78,7 @@ void init_proc_table(void)
 {
     for (int i = 0; i < MAXPROC; i++)
     {
+        // Clear process messaging entry
         g_msgProc[i].pid = -1;
         g_msgProc[i].recvBuf = NULL;
         g_msgProc[i].recvMax = 0;
@@ -84,6 +89,7 @@ void init_proc_table(void)
         g_msgProc[i].blockedMbox = -1;
         g_msgProc[i].blockedType = 0;
 
+        // Clear wait queue node
         g_waitNode[i].pid = -1;
         g_waitNode[i].pNextProcess = NULL;
         g_waitNode[i].pPrevProcess = NULL;
@@ -93,9 +99,11 @@ void init_proc_table(void)
 // Error handler slot free list setup 
 void init_slot_freelist(void)
 {
+    // Start with empty free list
     freeSlotHead = NULL;
     for (int i = 0; i < MAXSLOTS; i++)
     {
+        // Push slot onto free list
         mailSlots[i].pNextSlot = freeSlotHead;
         mailSlots[i].pPrevSlot = NULL;
         mailSlots[i].mbox_id = -1;
@@ -107,12 +115,14 @@ void init_slot_freelist(void)
 // Allocate slot
 SlotPtr allocate_slot(void)
 {
+    // Take head of free list
     SlotPtr _slotptr = freeSlotHead;
     if (_slotptr != NULL)
     {
         freeSlotHead = _slotptr->pNextSlot;
         if (freeSlotHead) freeSlotHead->pPrevSlot = NULL;
 
+        // Clear slot links and metadata
         _slotptr->pNextSlot = NULL;
         _slotptr->pPrevSlot = NULL;
         _slotptr->mbox_id = -1;
@@ -124,7 +134,10 @@ SlotPtr allocate_slot(void)
 // Free slot in list
 void free_slot(SlotPtr _slotptr)
 {
-    if (!_slotptr) return;
+    if (!_slotptr)
+    {
+        return;
+    }
 
     // Push onto free list head 
     _slotptr->pNextSlot = freeSlotHead;
@@ -136,6 +149,7 @@ void free_slot(SlotPtr _slotptr)
         freeSlotHead->pPrevSlot = _slotptr;
     }
 
+    // Clear freed slot metadata
     _slotptr->mbox_id = -1;
     _slotptr->messageSize = 0;
 
@@ -147,57 +161,97 @@ void init_mailboxes(void)
 {
     for (int i = 0; i < MAXMBOX; i++)
     {
+        // Reset mailbox core fields
         mailboxes[i].pSlotListHead = NULL;
         mailboxes[i].mbox_id = i;
-		mailboxes[i].type = MB_MAXTYPES;            // Initial Unknown Type
+        mailboxes[i].type = MB_MAXTYPES;            // Initial Unknown Type
         mailboxes[i].status = MBSTATUS_EMPTY;       // Empty Slot
         mailboxes[i].slotSize = 0;
         mailboxes[i].slotCount = 0;
 
         g_mailbox_maxSlots[i] = 0;                  // TEST03 ADD initialize maxSlots array to 0 for all mailboxes
 
+        // Reset mailbox queue pointers
         g_slotTail[i] = NULL;                       // TEST05 ADD initialize slot, send, receive head and tails
         g_waitRecvHead[i] = NULL;
         g_waitRecvTail[i] = NULL;
         g_waitSendHead[i] = NULL;
         g_waitSendTail[i] = NULL;
+
+        // Reset mailbox release tracking
+        g_releaseWaitCount[i] = 0;                  // TEST17/RELEASE ADD initialize release waiter count
+        g_releaseFreerPid[i] = -1;                  // TEST17/RELEASE ADD initialize freeing process pid
     }
 }
 
 void waitq_push(WaitingProcessPtr* head, WaitingProcessPtr* tail, WaitingProcessPtr _WaitProc) {
+    // Insert at queue tail
     _WaitProc->pNextProcess = NULL;
     _WaitProc->pPrevProcess = *tail;
-    if (*tail) (*tail)->pNextProcess = _WaitProc;
-    else *head = _WaitProc;
+    if (*tail)
+    {
+        (*tail)->pNextProcess = _WaitProc;
+    }
+    else
+    {
+        *head = _WaitProc;
+    }
     *tail = _WaitProc;
 }
 
 WaitingProcessPtr waitq_pop(WaitingProcessPtr* head, WaitingProcessPtr* tail) {
+    // Remove from queue head
     WaitingProcessPtr _WaitProc = *head;
-    if (!_WaitProc) return NULL;
+    if (!_WaitProc)
+    {
+        return NULL;
+    }
     *head = _WaitProc->pNextProcess;
-    if (*head) (*head)->pPrevProcess = NULL;
-    else *tail = NULL;
+    if (*head)
+    {
+        (*head)->pPrevProcess = NULL;
+    }
+    else
+    {
+        *tail = NULL;
+    }
     _WaitProc->pNextProcess = _WaitProc->pPrevProcess = NULL;
     return _WaitProc;
 }
 
 void slot_enqueue(int mboxId, SlotPtr _SlotPtr) {
     MailBox* _Mailbox = &mailboxes[mboxId];
+    // Insert slot at mailbox tail
     _SlotPtr->pNextSlot = NULL;
     _SlotPtr->pPrevSlot = g_slotTail[mboxId];
-    if (g_slotTail[mboxId]) g_slotTail[mboxId]->pNextSlot = _SlotPtr;
-    else _Mailbox->pSlotListHead = _SlotPtr;
+    if (g_slotTail[mboxId])
+    {
+        g_slotTail[mboxId]->pNextSlot = _SlotPtr;
+    }
+    else
+    {
+        _Mailbox->pSlotListHead = _SlotPtr;
+    }
     g_slotTail[mboxId] = _SlotPtr;
 }
 
 SlotPtr slot_dequeue(int mboxId) {
     MailBox* _Mailbox = &mailboxes[mboxId];
+    // Remove slot from mailbox head
     SlotPtr _SlotPtr = _Mailbox->pSlotListHead;
-    if (!_SlotPtr) return NULL;
+    if (!_SlotPtr)
+    {
+        return NULL;
+    }
     _Mailbox->pSlotListHead = _SlotPtr->pNextSlot;
-    if (_Mailbox->pSlotListHead) _Mailbox->pSlotListHead->pPrevSlot = NULL;
-    else g_slotTail[mboxId] = NULL;
+    if (_Mailbox->pSlotListHead)
+    {
+        _Mailbox->pSlotListHead->pPrevSlot = NULL;
+    }
+    else 
+    {
+        g_slotTail[mboxId] = NULL;
+    }
     _SlotPtr->pNextSlot = _SlotPtr->pPrevSlot = NULL;
     return _SlotPtr;
 }
@@ -211,17 +265,19 @@ int device_id_from_param(char deviceId[32])
 
     uintptr_t raw = (uintptr_t)deviceId;
 
-    // If it's a small value, treat it as the device index
+    // If its a small value use it as the device index
     if (raw < (uintptr_t)THREADS_MAX_DEVICES)
         return (int)raw;
 
+    // Invalid device parameter format
     return -1;
 }
 
-/* TEST05 ADD: proc table helpers */
-/* TEST09 FIX proc table helpers */
+// TEST05 ADD: proc table helpers 
+// TEST09 FIX proc table helpers 
 MsgProcEntry* mp_for_pid(int pid)
 {
+    // Get process entry for pid
     int idx = mpIndex(pid);
     if (idx < 0) return NULL;
     return &g_msgProc[idx];
@@ -229,11 +285,13 @@ MsgProcEntry* mp_for_pid(int pid)
 
 MsgProcEntry* mp_self(void)
 {
+    // Get current process entry
     return mp_for_pid(k_getpid());
 }
 
 WaitingProcessPtr wp_for_pid(int pid)
 {
+    // Get wait node for pid
     int idx = mpIndex(pid);
     if (idx < 0) return NULL;
 
@@ -245,6 +303,7 @@ WaitingProcessPtr wp_for_pid(int pid)
 
 void prepare_blocked_sender(MsgProcEntry* _MsgProcEntry, int mboxId, void* pMsg, int msg_size)
 {
+    // Save blocked sender state
     _MsgProcEntry->sendBuf = pMsg;
     _MsgProcEntry->sendSize = msg_size;
     _MsgProcEntry->sendResult = -9999;
@@ -254,6 +313,7 @@ void prepare_blocked_sender(MsgProcEntry* _MsgProcEntry, int mboxId, void* pMsg,
 
 void prepare_blocked_receiver(MsgProcEntry* _MsgProcEntry, int mboxId, void* pMsg, int msg_size)
 {
+    // Save blocked receiver state
     _MsgProcEntry->recvBuf = pMsg;
     _MsgProcEntry->recvMax = msg_size;
     _MsgProcEntry->recvResult = -9999;
@@ -263,6 +323,7 @@ void prepare_blocked_receiver(MsgProcEntry* _MsgProcEntry, int mboxId, void* pMs
 
 int finish_blocked_call(MsgProcEntry* _MsgProcEntry, int result)
 {
+    // Clear blocked mailbox state
     _MsgProcEntry->blockedMbox = -1;
     _MsgProcEntry->blockedType = 0;
     enableInterrupts();

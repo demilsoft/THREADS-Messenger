@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <THREADSLib.h>
 #include <Scheduler.h>
-#include <Messaging.h>
+#include "Messaging.h"
 #include "message.h"
 
 // TEST05 ADD Messaging internal state
@@ -40,6 +40,8 @@ extern WaitingProcessPtr g_waitRecvTail[MAXMBOX];   // TEST05 ADD mailbox wait q
 extern WaitingProcessPtr g_waitSendHead[MAXMBOX];   // TEST05 ADD mailbox wait queues sender head
 extern WaitingProcessPtr g_waitSendTail[MAXMBOX];   // TEST05 ADD mailbox wait queues sender tail
 extern SlotPtr g_slotTail[MAXMBOX];                 // TEST05 ADD mailbox slot tail for FIFO
+extern int g_releaseWaitCount[MAXMBOX];             // TEST17 ADD how many awakened waiters still need to finish
+extern int g_releaseFreerPid[MAXMBOX];              // TEST17 ADD pid of process inside mailbox_free waiting to resume
 
 /* ------------------------- Helper Prototypes ----------------------------- */
 void init_slot_freelist(void);                      // TEST03 ADD
