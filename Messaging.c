@@ -11,8 +11,8 @@
 #include <string.h>
 #include <THREADSLib.h>
 #include <Scheduler.h>
-#include "Messaging.h"
 #include <stdint.h>
+#include "Messaging.h"
 #include "message.h"
 #include "MessagingHelpers.h"
 
@@ -54,9 +54,9 @@ static int check_io_messaging(void);
 extern int MessagingEntryPoint(void*);
 static void checkKernelMode(const char* functionName);
 static void init_devices(void);
-static void io_handler(char deviceId[32], uint8_t command, uint32_t status, void* pArgs);               // TEST05 ADD
-static void syscall_handler(char deviceId[32], uint8_t command, uint32_t status, void* pArgs);          // TEST05 ADD
-static void clock_handler_messaging(char deviceId[32], uint8_t command, uint32_t status, void* pArgs);  // TEST08 ADD
+static void io_handler(char deviceId[32], uint8_t command, uint32_t status, void* pArgs);               // TEST05 ADD handle device interrupts
+static void syscall_handler(char deviceId[32], uint8_t command, uint32_t status, void* pArgs);          // TEST05 ADD dispatch system calls
+static void clock_handler_messaging(char deviceId[32], uint8_t command, uint32_t status, void* pArgs);  // TEST08 ADD handle clock interrupts
 ////////////////////////////////////// PROTOTYPES /////////////////////////////////////
 
 // SCHEDULER ENTRY POINT //
@@ -88,10 +88,10 @@ int SchedulerEntryPoint(void* arg)
       * handlers use non-blocking sends. */
 
       // TEST03 ADD: init mailbox/slot structures first so mailbox_create works cleanly.
-    init_mailboxes();                       // TEST03 ADD
-    init_slot_freelist();                   // TEST03 ADD
-    init_proc_table();                      // TEST05 ADD 
-    init_devices();                         // TEST05 ADD 
+    init_mailboxes();                       // TEST03 ADD initialize mailbox table
+    init_slot_freelist();                   // TEST03 ADD initialize slot free list
+    init_proc_table();                      // TEST05 ADD initialize process messaging table
+    init_devices();                         // TEST05 ADD initialize device mailboxes
 
     InitializeHandlers();
     enableInterrupts();
@@ -253,7 +253,7 @@ int mailbox_create(int slots, int slot_size)
              *
              * So: we'll add a static array for maxSlots keyed by mailbox id.*/
             newId = i;
-            g_mailbox_maxSlots[i] = slots;                  // TEST03 ADD
+            g_mailbox_maxSlots[i] = slots;                  // TEST03 ADD save mailbox slot capacity
             g_slotTail[i] = NULL;                           // TEST05 ADD keep tail reset on create
             break;
         }
@@ -349,7 +349,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
             return -1;
         }
 
-        prepare_blocked_sender(_msgProcEntry, mboxId, pMsg, msg_size);        // TEST25? ADD CLEANUP
+        prepare_blocked_sender(_msgProcEntry, mboxId, pMsg, msg_size);        // TEST25 ADD save blocked sender state
 
         // Initialize sender wait node
         snode->pid = pid;
@@ -374,23 +374,23 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
                 g_releaseFreerPid[mboxId] = -1;
             }
 
-            return finish_blocked_call(_msgProcEntry, -5);                 // TEST25 ADD CLEANUP
+            return finish_blocked_call(_msgProcEntry, -5);                 // TEST25 ADD clear state and return
         }
 
         // Main signal path 
         if (signaled())
         {
-            return finish_blocked_call(_msgProcEntry, -5);                 // TEST25 ADD CLEANUP
+            return finish_blocked_call(_msgProcEntry, -5);                 // TEST25 ADD clear state and return
         }
 
         if (_Mailbox->status != MBSTATUS_INUSE)
         {
-            return finish_blocked_call(_msgProcEntry, -1);                 // TEST25 ADD CLEANUP
+            return finish_blocked_call(_msgProcEntry, -1);                 // TEST25 ADD clear state and return
         }
 
         {
             int _SendResult = _msgProcEntry->sendResult;
-            return finish_blocked_call(_msgProcEntry, (_SendResult == -9999) ? 0 : _SendResult);   // TEST25 ADD CLEANUP
+            return finish_blocked_call(_msgProcEntry, (_SendResult == -9999) ? 0 : _SendResult);   // TEST25 ADD clear state and return
         }
     }
 
@@ -413,7 +413,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
             return -1;
         }
 
-        prepare_blocked_sender(_msgProcEntry, mboxId, pMsg, msg_size);         // TEST25 ADD CLEANUP
+        prepare_blocked_sender(_msgProcEntry, mboxId, pMsg, msg_size);         // TEST25 ADD save blocked sender state
 
         // Init sender wait node
         snode->pid = pid;
@@ -445,23 +445,23 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
                 g_releaseFreerPid[mboxId] = -1;
             }
 
-            return finish_blocked_call(_msgProcEntry, -5);          // TEST25 ADD
+            return finish_blocked_call(_msgProcEntry, -5);          // TEST25 ADD clear state and return
         }
 
         // General signal path 
         if (signaled())
         {
-            return finish_blocked_call(_msgProcEntry, -5);          // TEST25 ADD
+            return finish_blocked_call(_msgProcEntry, -5);          // TEST25 ADD clear state and return
         }
 
         if (_Mailbox->status != MBSTATUS_INUSE)
         {
-            return finish_blocked_call(_msgProcEntry, -1);          // TEST25 ADD CLEANUP
+            return finish_blocked_call(_msgProcEntry, -1);          // TEST25 ADD clear state and return
         }
 
         {
             int _SendResult = _msgProcEntry->sendResult;
-            return finish_blocked_call(_msgProcEntry, (_SendResult == -9999) ? 0 : _SendResult);   // TEST25 ADD CLEANUP
+            return finish_blocked_call(_msgProcEntry, (_SendResult == -9999) ? 0 : _SendResult);   // TEST25 ADD clear state and return
         }
     }
 
@@ -664,7 +664,7 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
             return -1;
         }
 
-        prepare_blocked_receiver(_MsgProcEntry, mboxId, pMsg, msg_size);   // CLEANUP ADD
+        prepare_blocked_receiver(_MsgProcEntry, mboxId, pMsg, msg_size);   // TEST25 ADD save blocked receiver state
 
         // Initialize receiver wait node
         node->pid = pid;
@@ -692,23 +692,23 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
                 g_releaseFreerPid[mboxId] = -1;
             }
 
-            return finish_blocked_call(_MsgProcEntry, -5);                 // CLEANUP ADD
+            return finish_blocked_call(_MsgProcEntry, -5);                 // TEST25 ADD clear state and return
         }
 
         // General signal block
         if (signaled())
         {
-            return finish_blocked_call(_MsgProcEntry, -5);                 // CLEANUP ADD
+            return finish_blocked_call(_MsgProcEntry, -5);                 // TEST25 ADD clear state and return
         }
 
         if (_MailBox->status != MBSTATUS_INUSE)
         {
-            return finish_blocked_call(_MsgProcEntry, -1);                 // CLEANUP ADD
+            return finish_blocked_call(_MsgProcEntry, -1);                 // TEST25 ADD clear state and return
         }
 
         {
             int result = _MsgProcEntry->recvResult;
-            return finish_blocked_call(_MsgProcEntry, result);             // CLEANUP ADD
+            return finish_blocked_call(_MsgProcEntry, result);             // TEST25 ADD clear state and return
         }
     }
 }
@@ -955,8 +955,8 @@ static void InitializeHandlers(void)
      *   handlers[THREADS_SYS_CALL_INTERRUPT] = your_syscall_handler;*/
 
     handlers[THREADS_TIMER_INTERRUPT] = clock_handler_messaging;            // TEST09 ADD - In lecture new clock handler
-    handlers[THREADS_IO_INTERRUPT] = io_handler;                            // TEST05 ADD
-    handlers[THREADS_SYS_CALL_INTERRUPT] = syscall_handler;                 // TEST05 ADD
+    handlers[THREADS_IO_INTERRUPT] = io_handler;                            // TEST05 ADD register I/O handler
+    handlers[THREADS_SYS_CALL_INTERRUPT] = syscall_handler;                 // TEST05 ADD register syscall handler
 }
 
 // an error method to handle invalid syscalls 

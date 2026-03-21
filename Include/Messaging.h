@@ -19,10 +19,9 @@ int mailbox_create(int slots, int slot_size);
 extern int mailbox_free(int mbox_id);
 extern int mailbox_send(int mbox_id, void* msg_ptr, int msg_size, BOOL block);
 extern int mailbox_receive(int mbox_id, void* msg_ptr, int msg_max_size, BOOL block);
-// type = interrupt device type, unit = # of device
-// status = where interrupt handler puts device's status register.
 extern int wait_device(char* deviceName, int* status);
 extern void  (*systemCallVector[])(system_call_arguments_t* args);
+
 /////////////////////////////// ORIGINAL ///////////////////////////////
 #define MQ_O_CREAT     /* Create the message queue if it does not exist.*/
 #define MQ_O_NONBLOCK  /* Open the queue in nonblocking mode.In circumstances
