@@ -17,7 +17,7 @@
 #include "MessagingHelpers.h"
 
 /////////////////////////////////////// GLOBALS ///////////////////////////////////////
-interrupt_handler_t* handlers;                  // From THREADs, interrupt handler array of function pointers
+interrupt_handler_t* handlers;                  // From THREADs interrupt handler
 void (*systemCallVector[THREADS_MAX_SYSCALLS])(system_call_arguments_t* args); // system call array of function pointers
 MailBox mailboxes[MAXMBOX];                     // Mail boxes
 MailSlot mailSlots[MAXSLOTS];                   // Mail slots
@@ -87,11 +87,11 @@ int SchedulerEntryPoint(void* arg)
       * (disks, terminals) need slotted mailboxes since their interrupt
       * handlers use non-blocking sends. */
 
-      // TEST03 ADD: init mailbox/slot structures first so mailbox_create works cleanly.
-    init_mailboxes();                       // TEST03 ADD initialize mailbox table
-    init_slot_freelist();                   // TEST03 ADD initialize slot free list
-    init_proc_table();                      // TEST05 ADD initialize process messaging table
-    init_devices();                         // TEST05 ADD initialize device mailboxes
+      // TEST03 ADD init mailbox/slot structures first so mailbox_create works cleanly.
+    init_mailboxes();                       // TEST03 ADD init mailbox table
+    init_slot_freelist();                   // TEST03 ADD init slot free list
+    init_proc_table();                      // TEST05 ADD init process messaging table
+    init_devices();                         // TEST05 ADD init device mailboxes
 
     InitializeHandlers();
     enableInterrupts();
@@ -165,7 +165,7 @@ static void init_devices(void)
 
     for (int i = 0; i < 6; i++)
     {
-        // Initialize one I/O device
+        // init one I/O device
         int _Device = device_initialize((char*)ioDevices[i]);
         if (_Device < 0 || _Device >= THREADS_MAX_DEVICES)
         {
@@ -305,11 +305,11 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
     }
 
     // If a receiver is already waiting, deliver directly 
-    WaitingProcessPtr rnode = waitq_pop(&g_waitRecvHead[mboxId], &g_waitRecvTail[mboxId]);
+    WaitingProcessPtr rnode = wait_queue_pop(&g_waitRecvHead[mboxId], &g_waitRecvTail[mboxId]);
     if (rnode != NULL)
     {
         int rpid = rnode->pid;
-        MsgProcEntry* _msgProc = mp_for_pid(rpid);
+        MsgProcEntry* _msgProc = mpe_for_pid(rpid);
 
         if (_msgProc && _msgProc->recvMax >= msg_size)             // TEST11 ALTER deliver if receiver buffer is large enough
         {
@@ -340,7 +340,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 
         // Blocking sender waits for a receiver to arrive 
         int pid = k_getpid();
-        MsgProcEntry* _msgProcEntry = mp_for_pid(pid);
+        MsgProcEntry* _msgProcEntry = mpe_for_pid(pid);
         WaitingProcessPtr snode = wp_for_pid(pid);
 
         if (!_msgProcEntry || !snode)
@@ -351,12 +351,12 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 
         prepare_blocked_sender(_msgProcEntry, mboxId, pMsg, msg_size);        // TEST25 ADD save blocked sender state
 
-        // Initialize sender wait node
+        // init sender wait node
         snode->pid = pid;
         snode->pNextProcess = NULL;
         snode->pPrevProcess = NULL;
 
-        waitq_push(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId], snode);
+        wait_queue_push(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId], snode);
 
         block(BLOCKED_SEND);
 
@@ -404,7 +404,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
         }
 
         int pid = k_getpid();
-        MsgProcEntry* _msgProcEntry = mp_for_pid(pid);
+        MsgProcEntry* _msgProcEntry = mpe_for_pid(pid);
         WaitingProcessPtr snode = wp_for_pid(pid);
 
         if (!_msgProcEntry || !snode)
@@ -420,7 +420,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
         snode->pNextProcess = NULL;
         snode->pPrevProcess = NULL;
 
-        waitq_push(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId], snode);
+        wait_queue_push(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId], snode);
 
         block(BLOCKED_SEND);
 
@@ -467,7 +467,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
 
     // Space available in slotted mailbox: queue message 
     {
-        SlotPtr _SlotPtr = allocate_slot();                         // TEST16 ALTER Allocate slot here instead of before block to avoid holding up a slot while blocked if mailbox is full
+        SlotPtr _SlotPtr = allocate_free_slot();                         // TEST16 ALTER Allocate slot here instead of before block to avoid holding up a slot while blocked if mailbox is full
         if (!_SlotPtr)
         {
             enableInterrupts();
@@ -560,22 +560,22 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
                 memcpy(pMsg, _SlotPtr->message, (size_t)_MsgSize);        // TEST 11 ALTER Conditional copy to avoid invalid memcpy if msg_size is 0
             }
             _MailBox->slotCount--;
-            free_slot(_SlotPtr);
+            return_free_slot(_SlotPtr);
 
             /* For slotted mailboxes only: if a sender was blocked because mailbox was full,
                one slot just opened up, so queue one sender's pending message now. */
             if (g_mailbox_maxSlots[mboxId] > 0)
             {
-                WaitingProcessPtr snode = waitq_pop(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId]);
+                WaitingProcessPtr snode = wait_queue_pop(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId]);
                 if (snode)
                 {
                     int spid = snode->pid;
-                    MsgProcEntry* _msgProcEntry = mp_for_pid(spid);
+                    MsgProcEntry* _msgProcEntry = mpe_for_pid(spid);
 
                     if (_msgProcEntry && _MailBox->status == MBSTATUS_INUSE && _MailBox->slotCount < g_mailbox_maxSlots[mboxId])
                     {
                         // Requeue blocked sender message
-                        SlotPtr _SlotPtr = allocate_slot();
+                        SlotPtr _SlotPtr = allocate_free_slot();
                         if (_SlotPtr != NULL)
                         {
                             _SlotPtr->mbox_id = mboxId;
@@ -615,11 +615,11 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
     // TEST29 ALTER zero-slot path before blocking to preserve rendezvous behavior for zero-slot mailboxes (instead of blocking sender and waiting for receiver to arrive, which would deadlock since receiver is what we're trying to unblock in the first place).
     if (g_mailbox_maxSlots[mboxId] == 0)
     {
-        WaitingProcessPtr snode = waitq_pop(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId]);
+        WaitingProcessPtr snode = wait_queue_pop(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId]);
         if (snode)
         {
             int spid = snode->pid;
-            MsgProcEntry* _msgProcEntry = mp_for_pid(spid);
+            MsgProcEntry* _msgProcEntry = mpe_for_pid(spid);
 
             if (!_msgProcEntry || _msgProcEntry->sendSize < 0 || msg_size < _msgProcEntry->sendSize)
             {
@@ -655,7 +655,7 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
     // Block waiting receiver
     {
         int pid = k_getpid();
-        MsgProcEntry* _MsgProcEntry = mp_for_pid(pid);
+        MsgProcEntry* _MsgProcEntry = mpe_for_pid(pid);
         WaitingProcessPtr node = wp_for_pid(pid);
 
         if (!_MsgProcEntry || !node)
@@ -666,12 +666,12 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
 
         prepare_blocked_receiver(_MsgProcEntry, mboxId, pMsg, msg_size);   // TEST25 ADD save blocked receiver state
 
-        // Initialize receiver wait node
+        // init receiver wait node
         node->pid = pid;
         node->pNextProcess = NULL;
         node->pPrevProcess = NULL;
 
-        waitq_push(&g_waitRecvHead[mboxId], &g_waitRecvTail[mboxId], node);
+        wait_queue_push(&g_waitRecvHead[mboxId], &g_waitRecvTail[mboxId], node);
 
         block(BLOCKED_RECEIVE);
 
@@ -749,7 +749,7 @@ int mailbox_free(int mboxId)
     while (_SlotPtr != NULL)
     {
         SlotPtr next = _SlotPtr->pNextSlot;
-        free_slot(_SlotPtr);
+        return_free_slot(_SlotPtr);
         _SlotPtr = next;
     }
 
@@ -763,7 +763,7 @@ int mailbox_free(int mboxId)
     int waitTypes[MAXPROC];
     WaitingProcessPtr node;
 
-    while ((node = waitq_pop(&g_waitRecvHead[mboxId], &g_waitRecvTail[mboxId])) != NULL)
+    while ((node = wait_queue_pop(&g_waitRecvHead[mboxId], &g_waitRecvTail[mboxId])) != NULL)
     {
         if (awakened < MAXPROC)
         {
@@ -774,7 +774,7 @@ int mailbox_free(int mboxId)
         }
     }
 
-    while ((node = waitq_pop(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId])) != NULL)
+    while ((node = wait_queue_pop(&g_waitSendHead[mboxId], &g_waitSendTail[mboxId])) != NULL)
     {
         if (awakened < MAXPROC)
         {
@@ -785,10 +785,10 @@ int mailbox_free(int mboxId)
         }
     }
 
-    // TEST09 - TEST17 DEBUG
+    // TEST09/TEST17 DEBUG
     //console_output(FALSE, "mailbox_free(%d): awakened=%d\n", mboxId, awakened);
 
-    // IMPORTANT initialize release handshake BEFORE unblocking anyone 
+    // IMPORTANT init release handshake BEFORE unblocking anyone 
     if (awakened > 0)
     {
         // Track awakened release waiters
@@ -799,9 +799,9 @@ int mailbox_free(int mboxId)
     for (int i = 0; i < awakened; i++)
     {
         int pid = waitPids[i];
-        MsgProcEntry* _MsgProcEntry = mp_for_pid(pid);
+        MsgProcEntry* _MsgProcEntry = mpe_for_pid(pid);
 
-        // TEST09 DEBUG  show who is being released
+        // TEST09 DEBUG show who is being released
         //console_output(FALSE, "mailbox_free(%d): releasing pid=%d type=%s\n", mboxId, pid, (waitTypes[i] == BLOCKED_SEND) ? "SEND" : "RECEIVE");
 
         if (_MsgProcEntry)
@@ -815,7 +815,7 @@ int mailbox_free(int mboxId)
         unblock(pid);
     }
 
-    // If waiters remain, block until last releaser wakes us
+    // If waiters remain block until last releaser wakes us
     if (awakened > 0 && g_releaseWaitCount[mboxId] > 0)
     {
         block(BLOCKED_RELEASE);
@@ -897,7 +897,7 @@ int wait_device(char* deviceName, int* status)
             stop(-1);
         }
 
-        // set a flag that there is a process waiting on a device. 
+        // set a flag that there is a process waiting on a device
         waitingOnDevice++;
 
         // TEST05 ADD - Adding check for possible failure 
@@ -918,7 +918,6 @@ int wait_device(char* deviceName, int* status)
         stop(-1);
     }
 
-    // If process was signaled while waiting, return -5 
     if (signaled())
     {
         result = -5;
@@ -979,7 +978,7 @@ static void io_handler(char deviceId[32], uint8_t command, uint32_t status, void
         return;
     }
 
-    // TEST08 ADD If this device wasn't initialized, ignore the interrupt safely
+    // TEST08 ADD If this device wasnt initialized
     if (devices[idx].deviceMbox < 0)
     {
         return;
@@ -987,7 +986,7 @@ static void io_handler(char deviceId[32], uint8_t command, uint32_t status, void
 
     int st = (int)status;
 
-    // Interrupt context: must be non-blocking 
+    // Interrupt must be non-blocking 
     mailbox_send(devices[idx].deviceMbox, &st, sizeof(int), FALSE);
 }
 
@@ -1011,7 +1010,7 @@ static void clock_handler_messaging(char deviceId[32], uint8_t command, uint32_t
     // Must still time slice for round-robin scheduling 
     time_slice();
 
-    // TEST08 ADD Every 5th clock interrupt, send a tick to the clock mailbox (non-blocking) */
+    // TEST08 ADD Every 5th clock interrupt, send a tick to the clock mailbox
     static int _TickCount = 0;
     _TickCount++;
 
@@ -1020,13 +1019,12 @@ static void clock_handler_messaging(char deviceId[32], uint8_t command, uint32_t
         // Clock mailbox should be at devices[THREADS_CLOCK_DEVICE_ID] 
         int clockIdx = THREADS_CLOCK_DEVICE_ID;
 
-        // If the clock mailbox isn't initialized, just skip safely 
+        // If the clock mailbox isnt initialized skip
         if (devices[clockIdx].deviceMbox < 0)
         {
             return;
         }
 
-        // "Tick" message content doesn't really matter; presence matters 
         int tick = _TickCount;
 
         // Interrupt context: must be non-blocking 
