@@ -87,7 +87,7 @@ int SchedulerEntryPoint(void* arg)
       * (disks, terminals) need slotted mailboxes since their interrupt
       * handlers use non-blocking sends. */
 
-    // TEST03 ADD: init mailbox/slot structures first so mailbox_create works cleanly.
+      // TEST03 ADD: init mailbox/slot structures first so mailbox_create works cleanly.
     init_mailboxes();                       // TEST03 ADD
     init_slot_freelist();                   // TEST03 ADD
     init_proc_table();                      // TEST05 ADD 
@@ -123,7 +123,7 @@ int SchedulerEntryPoint(void* arg)
 static void init_devices(void)
 {
     // MAKE SURE TO INITIALIZE YOUR DEVICE MANAGEMENT DATA STRUCTURE
-    for (int i = 0; i < THREADS_MAX_DEVICES; i++) 
+    for (int i = 0; i < THREADS_MAX_DEVICES; i++)
     {
         // Clear device management
         devices[i].deviceHandle = NULL;
@@ -153,7 +153,7 @@ static void init_devices(void)
 
     // TEST08 FIX Clock device uses a zero-slot mailbox 
     devices[THREADS_CLOCK_DEVICE_ID].deviceMbox = mailbox_create(0, sizeof(int));
-    if (devices[THREADS_CLOCK_DEVICE_ID].deviceMbox < 0) 
+    if (devices[THREADS_CLOCK_DEVICE_ID].deviceMbox < 0)
     {
         console_output(FALSE, "SchedulerEntryPoint: mailbox_create(clock) failed\n");
         stop(1);
@@ -293,12 +293,12 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
     disableInterrupts();
 
     MailBox* _Mailbox = &mailboxes[mboxId];
-    if (_Mailbox->status != MBSTATUS_INUSE) 
+    if (_Mailbox->status != MBSTATUS_INUSE)
     {
         enableInterrupts();
         return -1;
     }
-    if (msg_size > _Mailbox->slotSize || msg_size > MAX_MESSAGE) 
+    if (msg_size > _Mailbox->slotSize || msg_size > MAX_MESSAGE)
     {
         enableInterrupts();
         return -1;
@@ -319,7 +319,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
             }
             _msgProc->recvResult = msg_size;
         }
-        else if (_msgProc) 
+        else if (_msgProc)
         {
             _msgProc->recvResult = -1;
         }
@@ -363,7 +363,7 @@ int mailbox_send(int mboxId, void* pMsg, int msg_size, int wait)
         disableInterrupts();
 
         // Mailbox release path 
-        if (_msgProcEntry->blockedMbox == mboxId &&  mailboxes[mboxId].status == MBSTATUS_RELEASED)
+        if (_msgProcEntry->blockedMbox == mboxId && mailboxes[mboxId].status == MBSTATUS_RELEASED)
         {
             // One released waiter finished
             g_releaseWaitCount[mboxId]--;
@@ -522,7 +522,7 @@ int mailbox_receive(int mboxId, void* pMsg, int msg_size, int wait)
     disableInterrupts();
 
     MailBox* _MailBox = &mailboxes[mboxId];
-    if (_MailBox->status != MBSTATUS_INUSE) 
+    if (_MailBox->status != MBSTATUS_INUSE)
     {
         enableInterrupts();
         return -1;
@@ -921,7 +921,7 @@ int wait_device(char* deviceName, int* status)
     // If process was signaled while waiting, return -5 
     if (signaled())
     {
-        result = -5;  
+        result = -5;
     }
 
     return result;
@@ -964,7 +964,7 @@ static void nullsys(system_call_arguments_t* args)
 {
     console_output(FALSE, "nullsys(): Invalid syscall %d. Halting...\n", args->call_id);
     stop(1);
-} 
+}
 
 static void io_handler(char deviceId[32], uint8_t command, uint32_t status, void* pArgs)
 {

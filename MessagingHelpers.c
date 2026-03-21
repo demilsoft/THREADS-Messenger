@@ -18,15 +18,15 @@
 
 /////////////////////////////////////// GLOBALS ///////////////////////////////////////
 SlotPtr freeSlotHead = NULL;                 // Slot free list management   TEST02 ADD
-int g_mailbox_maxSlots[MAXMBOX];             // TEST03 ADD
+int g_mailbox_maxSlots[MAXMBOX];             // Slot free list management   TEST02 ADD
 MsgProcEntry g_msgProc[MAXPROC];             // TEST05 ADD One waiting node per process
-WaitingProcess g_waitNode[MAXPROC];          // TEST05 ADD
+WaitingProcess g_waitNode[MAXPROC];          // Slot free list management   TEST02 ADD
 WaitingProcessPtr g_waitRecvHead[MAXMBOX];   // TEST05 ADD mailbox wait queues receiver head
 WaitingProcessPtr g_waitRecvTail[MAXMBOX];   // TEST05 ADD mailbox wait queues receiver tail
 WaitingProcessPtr g_waitSendHead[MAXMBOX];   // TEST05 ADD mailbox wait queues sender head
 WaitingProcessPtr g_waitSendTail[MAXMBOX];   // TEST05 ADD mailbox wait queues sender tail
 SlotPtr g_slotTail[MAXMBOX];                 // TEST05 ADD mailbox slot tail for FIFO
-static int mpIndex(int pid);                 // TEST05 ADD
+static int mpIndex(int pid);                 // TEST05 ADD map pid to proc table index
 int g_releaseWaitCount[MAXMBOX];             // TEST17 ADD how many awakened waiters still need to finish
 int g_releaseFreerPid[MAXMBOX];              // TEST17 ADD pid of process inside mailbox_free waiting to resume
 /////////////////////////////////////// GLOBALS ///////////////////////////////////////
